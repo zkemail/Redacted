@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  /* ZK Email Design System Colors */
+  --background: #0f1112;
+  --foreground: #fbfdfe;
+  --card-bg: #141517;
+  --card-border: #222325;
+  --nav-bg: #26272e;
+  --nav-border: #2d2f31;
+  --primary: #5e6ad2;
+  --text-secondary: #c2c2c2;
+  --text-muted: #9ca3af;
+  --divider: #374151;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-space-grotesk);
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar - sleek, low visibility, pill-shaped */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(158, 158, 158, 0.3) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(158, 158, 158, 0.3);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(158, 158, 158, 0.5);
+}
+
+/* Custom selection styling */
+::selection {
+  background-color: rgba(94, 106, 210, 0.3);
+  color: #ffffff;
+}
+
+::-moz-selection {
+  background-color: rgba(94, 106, 210, 0.3);
+  color: #ffffff;
+}
+
+/* Scoped email body container - prevents style leakage */
+#email-body-container.email-body-scoped {
+  /* CSS containment to isolate styles and layout */
+  contain: style layout;
+  isolation: isolate;
+  
+  /* Ensure styles don't leak out */
+  position: relative;
+  z-index: 0;
+}
+
+/* Prevent email HTML styles from affecting the rest of the page */
+#email-body-container.email-body-scoped * {
+  /* Ensure box-sizing is consistent */
+  box-sizing: border-box;
+  
+  /* Prevent any global CSS resets from email content */
+  max-width: 100%;
+}
+
+/* Hide any style or link tags that might be injected */
+#email-body-container.email-body-scoped style,
+#email-body-container.email-body-scoped link[rel="stylesheet"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Scope scoped classes to prevent conflicts */
+/* These classes are scoped and won't conflict */
