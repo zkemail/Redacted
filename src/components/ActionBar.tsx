@@ -11,6 +11,7 @@ interface ActionBarProps {
   canUndo?: boolean;
   canRedo?: boolean;
   onVerify: () => void;
+  isGeneratingProof?: boolean;
 }
 
 export default function ActionBar({
@@ -19,6 +20,7 @@ export default function ActionBar({
   canUndo = false,
   canRedo = false,
   onVerify,
+  isGeneratingProof = false,
 }: ActionBarProps) {
   return (
     <div className="fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max">
@@ -35,14 +37,21 @@ export default function ActionBar({
 
           <div className="w-px h-6 bg-[#D4D4D4]" />
 
-          <div className="flex items-center gap-2" onClick={() => onVerify()}>
-            <div className="w-5 h-5">
-              <img
-                src={FileDownloadIcon}
-                alt="View & Download"
-                width={20}
-                height={20}
-              />
+          <div 
+            className={`flex items-center gap-2 ${isGeneratingProof ? 'cursor-wait opacity-70' : 'cursor-pointer hover:opacity-80'}`}
+            onClick={() => !isGeneratingProof && onVerify()}
+          >
+            <div className="w-5 h-5 flex items-center justify-center">
+              {isGeneratingProof ? (
+                <div className="w-4 h-4 border-2 border-[#111314] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <img
+                  src={FileDownloadIcon}
+                  alt="View & Download"
+                  width={20}
+                  height={20}
+                />
+              )}
             </div>
             <span className="text-[#111314] text-base font-normal hidden md:block">
               View & Download

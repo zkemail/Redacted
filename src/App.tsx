@@ -40,6 +40,7 @@ export default function Home() {
   } | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [isGeneratingProof, setIsGeneratingProof] = useState(false);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -95,9 +96,18 @@ export default function Home() {
     []
   );
 
-  const handleVerify = () => {
-    console.log("email.bodyText", email, headerMask, bodyMask);
-    handleGenerateProof(email.originalEml, headerMask, bodyMask);
+  const handleVerify = async () => {
+    if (!email.originalEml) return;
+    
+    setIsGeneratingProof(true);
+    try {
+      console.log("email.bodyText", email, headerMask, bodyMask);
+      await handleGenerateProof(email.originalEml, headerMask, bodyMask);
+    } catch (error) {
+      console.error("Error generating proof:", error);
+    } finally {
+      setIsGeneratingProof(false);
+    }
   };
 
   return (
@@ -128,6 +138,7 @@ export default function Home() {
         canUndo={canUndo}
         canRedo={canRedo}
         onVerify={handleVerify}
+        isGeneratingProof={isGeneratingProof}
       />
 
       <UploadModal
