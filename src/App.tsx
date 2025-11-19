@@ -7,6 +7,7 @@ import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import { type ParsedEmail } from "./utils/emlParser";
 import { handleGenerateProof } from "./lib";
+import { uploadEmlToGCS } from "./utils/gcsUpload";
 
 interface EmailState {
   from: string;
@@ -102,7 +103,19 @@ export default function Home() {
     setIsGeneratingProof(true);
     try {
       console.log("email.bodyText", email, headerMask, bodyMask);
-      await handleGenerateProof(email.originalEml, headerMask, bodyMask);
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask);
+      
+      // Upload EML file to Google Cloud Storage after proof is generated
+      if (proof) {
+        try {
+          const publicUrl = await uploadEmlToGCS(email.originalEml);
+          console.log("EML file uploaded successfully:", publicUrl);
+          // You can store this URL or display it to the user if needed
+        } catch (uploadError) {
+          console.error("Error uploading EML file to GCS:", uploadError);
+          // Don't fail the entire operation if upload fails
+        }
+      }
     } catch (error) {
       console.error("Error generating proof:", error);
     } finally {

@@ -12,6 +12,21 @@ dist
 dist-ssr
 *.local
 
+# Environment variables
+.env
+.env.local
+.env.*.local
+server/.env
+
+# Google Cloud Service Account Keys
+*.json
+!package.json
+!package-lock.json
+!tsconfig*.json
+!eslint.config.js
+service-account*.json
+*-key.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
