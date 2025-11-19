@@ -26,15 +26,19 @@ export const handleGenerateProof = async (
       maxBodyLength: 1024,
     };
 
-    // Slice arrays to match max lengths
-    const trimmedHeaderMask = headerMask.slice(0, 512);
-    const trimmedBodyMask = bodyMask.slice(0, 1024);
+    // Pad arrays with 0s if they're shorter than required lengths, or slice if longer
+    const paddedHeaderMask = headerMask.length < 512
+      ? [...headerMask, ...new Array(512 - headerMask.length).fill(0)]
+      : headerMask.slice(0, 512);
+    const paddedBodyMask = bodyMask.length < 1024
+      ? [...bodyMask, ...new Array(1024 - bodyMask.length).fill(0)]
+      : bodyMask.slice(0, 1024);
 
-    console.log("trimmedHeaderMask", email, trimmedHeaderMask, trimmedBodyMask);
+    console.log("paddedHeaderMask length:", paddedHeaderMask.length, "paddedBodyMask length:", paddedBodyMask.length);
 
     const inputs = await generateEmailVerifierInputs(email, {
-      headerMask: trimmedHeaderMask,
-      bodyMask: trimmedBodyMask,
+      headerMask: paddedHeaderMask,
+      bodyMask: paddedBodyMask,
       ...inputParams,
     });
     // generate witness
