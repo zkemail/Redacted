@@ -5,7 +5,7 @@ import './Home.css';
 
 const PageSection = ({
   children,
-  height = 'auto',
+  height = 'h-auto',
   solid = false,
 }: {
   children?: React.ReactNode;
@@ -87,7 +87,7 @@ export default function Home() {
             </div>
             <div className="text-center max-w-[540px] text-dark">
               Prove any sensitive information received on your mail without
-              revealing you identity. Powered by zero knowledge.
+              revealing your identity. Powered by zero knowledge.
             </div>
             <div className="flex justify-center items-center gap-4">
               <Link
