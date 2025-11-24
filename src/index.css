@@ -1,6 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  /* Home page colors */
+  --color-light: #F3F3F3;
+  --color-dark: #3B3B3B;
+  --color-darker: #111314;
+  --color-blue: #2962A5;
+  --color-gray-mid: #d4d4d4;
+  --color-lighter: #F9F9F9;
+}
+
 :root {
+  --font-heading: 'Newsreader', serif;
+  --font-body: 'Fustat', serif;
   /* ZK Email Design System Colors */
   --background: #0f1112;
   --foreground: #fbfdfe;
@@ -17,9 +29,13 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-space-grotesk);
+  font-family: var(--font-body);
   margin: 0;
   padding: 0;
+}
+
+.font-heading {
+  font-family: var(--font-heading);
 }
 
 /* Custom scrollbar - sleek, low visibility, pill-shaped */
