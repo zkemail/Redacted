@@ -5,9 +5,12 @@ import Header from "./components/Header";
 import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
+import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail } from "./utils/emlParser";
-import { handleGenerateProof } from "./lib";
-import { uploadEmlToGCS } from "./utils/gcsUpload";
+import { handleGenerateProof, extractMaskedDataFromProof } from "./lib";
+import { uploadEmlToGCS, generateUuid } from "./utils/gcsUpload";
+import { createVerificationUrl } from "./utils/urlEncoder";
+import type { ProofData } from "@aztec/bb.js";
 
 interface EmailState {
   from: string;
@@ -42,6 +45,7 @@ export default function Home() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [isGeneratingProof, setIsGeneratingProof] = useState(false);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -101,18 +105,77 @@ export default function Home() {
     if (!email.originalEml) return;
     
     setIsGeneratingProof(true);
+    setVerificationUrl(null);
     try {
       console.log("email.bodyText", email, headerMask, bodyMask);
-      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask);
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask) as ProofData | undefined;
       
-      // Upload EML file to Google Cloud Storage after proof is generated
+      // Log original proof structure for comparison
+      if (proof) {
+        console.log("✨ [GENERATE] Proof generated successfully");
+        console.log("✨ [GENERATE] publicInputs count:", proof.publicInputs?.length);
+        if (proof.publicInputs && proof.publicInputs.length > 0) {
+          const firstOriginal = proof.publicInputs[0] as unknown;
+          console.log("✨ [GENERATE] First publicInput type:", typeof firstOriginal);
+          console.log("✨ [GENERATE] First publicInput instanceof Uint8Array:", firstOriginal instanceof Uint8Array);
+          if (firstOriginal instanceof Uint8Array) {
+            console.log("✨ [GENERATE] First publicInput length:", firstOriginal.length);
+            console.log("✨ [GENERATE] First publicInput bytes (first 10):", Array.from(firstOriginal).slice(0, 10));
+          }
+        }
+        
+        // Extract masked email from proof
+        const maskedData = extractMaskedDataFromProof(proof);
+        if (maskedData) {
+          console.log("=== Masked Email from Proof ===");
+          console.log("Masked Header:", maskedData.maskedHeader);
+          console.log("Masked Body:", maskedData.maskedBody);
+          console.log("Public Key Hash:", Array.from(maskedData.publicKeyHash));
+          console.log("Email Nullifier:", Array.from(maskedData.emailNullifier));
+          
+          // You can use maskedData.maskedHeader and maskedData.maskedBody here
+          // Note: Masked positions will show as null bytes (0x00) or placeholders
+        } else {
+          console.warn("Could not extract masked data from proof");
+        }
+        
+        // Calculate approximate size
+        const publicInputsSize = proof.publicInputs?.reduce((sum: number, arr: unknown) => {
+          const length = arr instanceof Uint8Array ? arr.length : Array.isArray(arr) ? arr.length : 0;
+          return sum + length;
+        }, 0) || 0;
+        const proofSize = proof.proof?.length || 0;
+        const totalSize = publicInputsSize + proofSize;
+
+        console.log("Total binary size (bytes):", totalSize);
+        console.log("Estimated base64 size:", Math.ceil(totalSize * 4 / 3));
+        console.log("Estimated URL size (with encoding):", Math.ceil(totalSize * 4 / 3 * 1.37)); // base64 + URL encoding overhead
+      }
+      
+      // Upload EML file and proof to Google Cloud Storage after proof is generated
       if (proof) {
         try {
-          const publicUrl = await uploadEmlToGCS(email.originalEml);
+          // Step 1: Generate a UUID for this email/proof pair
+          const uuid = await generateUuid();
+          console.log("Generated UUID:", uuid);
+          
+          // Step 2: Upload EML file to GCS using the UUID
+          const { publicUrl } = await uploadEmlToGCS(email.originalEml, uuid);
           console.log("EML file uploaded successfully:", publicUrl);
-          // You can store this URL or display it to the user if needed
+          
+          // Step 3: Generate shareable verification URL (stores proof on server, returns short URL)
+          const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
+          setVerificationUrl(shareableUrl);
+          
+          // Copy to clipboard
+          try {
+            await navigator.clipboard.writeText(shareableUrl);
+            console.log("Verification URL copied to clipboard");
+          } catch (clipboardError) {
+            console.warn("Failed to copy to clipboard:", clipboardError);
+          }
         } catch (uploadError) {
-          console.error("Error uploading EML file to GCS:", uploadError);
+          console.error("Error uploading files to GCS:", uploadError);
           // Don't fail the entire operation if upload fails
         }
       }
@@ -158,6 +221,12 @@ export default function Home() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onEmailParsed={handleEmailParsed}
+      />
+
+      <VerificationUrlModal
+        isOpen={verificationUrl !== null}
+        onClose={() => setVerificationUrl(null)}
+        verificationUrl={verificationUrl || ""}
       />
     </div>
   );
