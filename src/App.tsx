@@ -7,7 +7,7 @@ import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail } from "./utils/emlParser";
-import { handleGenerateProof, extractMaskedDataFromProof } from "./lib";
+import { handleGenerateProof } from "./lib";
 import { uploadEmlToGCS, generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
@@ -34,6 +34,7 @@ export default function Home() {
     bodyText: "",
     bodyHtml: undefined,
   });
+  const [parsedEmail, setParsedEmail] = useState<ParsedEmail | null>(null);
   const [headerMask, setHeaderMask] = useState<number[]>([]);
   const [bodyMask, setBodyMask] = useState<number[]>([]);
 
@@ -58,6 +59,7 @@ export default function Home() {
   };
 
   const handleEmailParsed = (parsedEmail: ParsedEmail, originalEml: string) => {
+    setParsedEmail(parsedEmail);
     setEmail({
       from: parsedEmail.from || "Unknown",
       to: parsedEmail.to || "Unknown",
@@ -107,49 +109,11 @@ export default function Home() {
     setIsGeneratingProof(true);
     setVerificationUrl(null);
     try {
-      console.log("email.bodyText", email, headerMask, bodyMask);
       const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask) as ProofData | undefined;
       
-      // Log original proof structure for comparison
-      if (proof) {
-        console.log("✨ [GENERATE] Proof generated successfully");
-        console.log("✨ [GENERATE] publicInputs count:", proof.publicInputs?.length);
-        if (proof.publicInputs && proof.publicInputs.length > 0) {
-          const firstOriginal = proof.publicInputs[0] as unknown;
-          console.log("✨ [GENERATE] First publicInput type:", typeof firstOriginal);
-          console.log("✨ [GENERATE] First publicInput instanceof Uint8Array:", firstOriginal instanceof Uint8Array);
-          if (firstOriginal instanceof Uint8Array) {
-            console.log("✨ [GENERATE] First publicInput length:", firstOriginal.length);
-            console.log("✨ [GENERATE] First publicInput bytes (first 10):", Array.from(firstOriginal).slice(0, 10));
-          }
-        }
-        
-        // Extract masked email from proof
-        const maskedData = extractMaskedDataFromProof(proof);
-        if (maskedData) {
-          console.log("=== Masked Email from Proof ===");
-          console.log("Masked Header:", maskedData.maskedHeader);
-          console.log("Masked Body:", maskedData.maskedBody);
-          console.log("Public Key Hash:", Array.from(maskedData.publicKeyHash));
-          console.log("Email Nullifier:", Array.from(maskedData.emailNullifier));
-          
-          // You can use maskedData.maskedHeader and maskedData.maskedBody here
-          // Note: Masked positions will show as null bytes (0x00) or placeholders
-        } else {
-          console.warn("Could not extract masked data from proof");
-        }
-        
-        // Calculate approximate size
-        const publicInputsSize = proof.publicInputs?.reduce((sum: number, arr: unknown) => {
-          const length = arr instanceof Uint8Array ? arr.length : Array.isArray(arr) ? arr.length : 0;
-          return sum + length;
-        }, 0) || 0;
-        const proofSize = proof.proof?.length || 0;
-        const totalSize = publicInputsSize + proofSize;
-
-        console.log("Total binary size (bytes):", totalSize);
-        console.log("Estimated base64 size:", Math.ceil(totalSize * 4 / 3));
-        console.log("Estimated URL size (with encoding):", Math.ceil(totalSize * 4 / 3 * 1.37)); // base64 + URL encoding overhead
+      // Proof generated successfully
+      if (!proof) {
+        throw new Error("Proof generation failed");
       }
       
       // Upload EML file and proof to Google Cloud Storage after proof is generated
@@ -157,11 +121,9 @@ export default function Home() {
         try {
           // Step 1: Generate a UUID for this email/proof pair
           const uuid = await generateUuid();
-          console.log("Generated UUID:", uuid);
           
           // Step 2: Upload EML file to GCS using the UUID
-          const { publicUrl } = await uploadEmlToGCS(email.originalEml, uuid);
-          console.log("EML file uploaded successfully:", publicUrl);
+          await uploadEmlToGCS(email.originalEml, uuid);
           
           // Step 3: Generate shareable verification URL (stores proof on server, returns short URL)
           const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
@@ -170,7 +132,6 @@ export default function Home() {
           // Copy to clipboard
           try {
             await navigator.clipboard.writeText(shareableUrl);
-            console.log("Verification URL copied to clipboard");
           } catch (clipboardError) {
             console.warn("Failed to copy to clipboard:", clipboardError);
           }
@@ -197,7 +158,31 @@ export default function Home() {
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
           title="Masked Mail"
-          email={email}
+          email={{
+            ...email,
+            ranges: parsedEmail?.ranges ? {
+              from: parsedEmail.ranges.from ? {
+                rawStart: parsedEmail.ranges.from.rawStart,
+                displayOffset: parsedEmail.ranges.from.displayOffset,
+                displayLength: parsedEmail.ranges.from.displayLength,
+              } : undefined,
+              to: parsedEmail.ranges.to ? {
+                rawStart: parsedEmail.ranges.to.rawStart,
+                displayOffset: parsedEmail.ranges.to.displayOffset,
+                displayLength: parsedEmail.ranges.to.displayLength,
+              } : undefined,
+              time: parsedEmail.ranges.time ? {
+                rawStart: parsedEmail.ranges.time.rawStart,
+                displayOffset: parsedEmail.ranges.time.displayOffset,
+                displayLength: parsedEmail.ranges.time.displayLength,
+              } : undefined,
+              subject: parsedEmail.ranges.subject ? {
+                rawStart: parsedEmail.ranges.subject.rawStart,
+                displayOffset: parsedEmail.ranges.subject.displayOffset,
+                displayLength: parsedEmail.ranges.subject.displayLength,
+              } : undefined,
+            } : undefined,
+          }}
           isMasked={true}
           onToggleMask={handleToggleMask}
           resetTrigger={resetTrigger}

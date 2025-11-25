@@ -49,7 +49,6 @@ export const handleGenerateProof = async (
       ? [...bodyMask, ...new Array(1024 - bodyMask.length).fill(0)]
       : bodyMask.slice(0, 1024);
 
-    console.log("paddedHeaderMask length:", paddedHeaderMask.length, "paddedBodyMask length:", paddedBodyMask.length);
 
     const inputs = await generateEmailVerifierInputs(email, {
       headerMask: paddedHeaderMask,
@@ -164,7 +163,6 @@ export function extractMaskedDataFromProof(proof: ProofData): {
     // [3]: Masked body - 1024 bytes
     
     if (!proof.publicInputs || proof.publicInputs.length < 4) {
-      console.warn("Unexpected publicInputs structure:", proof.publicInputs);
       return null;
     }
 

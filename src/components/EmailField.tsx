@@ -120,6 +120,7 @@ export default function EmailField({
   onMaskBitsChange,
   restrictToNameOnly = false,
   disableSelectionMasking = false,
+  useBlackMask = false,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -191,10 +192,15 @@ export default function EmailField({
 
   const createMaskedHtml = useCallback(
     (text: string, bits: number[]) => {
-      if (!text || bits.length !== text.length) return escapeHtml(text);
+      if (!text || bits.length !== text.length) {
+        console.warn(`[EmailField] Text and bits length mismatch: text=${text.length}, bits=${bits.length}`);
+        return escapeHtml(text);
+      }
 
       let result = "";
       let index = 0;
+      let maskedSegments = 0;
+      let unmaskedSegments = 0;
 
       while (index < text.length) {
         const currentMask = bits[index] ?? 0;
@@ -205,16 +211,26 @@ export default function EmailField({
         const segment = text.slice(index, end);
         const escapedSegment = escapeHtml(segment);
         if (currentMask === 1) {
-          result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80">${escapedSegment}</span>`;
+          maskedSegments++;
+          if (useBlackMask) {
+            // Solid black mask - completely hides the text
+            // Use inline styles to ensure the black background is applied
+            result += `<span style="background-color: #000000; color: #000000; display: inline;">${escapedSegment}</span>`;
+          } else {
+            // Semi-transparent red mask with line-through (original style)
+            result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80">${escapedSegment}</span>`;
+          }
         } else {
+          unmaskedSegments++;
           result += escapedSegment;
         }
         index = end;
       }
 
+
       return result;
     },
-    [escapeHtml]
+    [escapeHtml, useBlackMask, label]
   );
 
   const maskedHtml = useMemo(() => {

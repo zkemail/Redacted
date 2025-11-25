@@ -9,20 +9,6 @@ export async function createVerificationUrl(
   headerMask: number[],
   bodyMask: number[]
 ): Promise<string> {
-  console.log("💾 [STORE] Preparing proof for storage");
-  console.log("💾 [STORE] publicInputs count:", proof.publicInputs?.length);
-  if (proof.publicInputs && proof.publicInputs.length > 0) {
-    const firstInput = proof.publicInputs[0];
-    console.log("💾 [STORE] First publicInput type:", typeof firstInput);
-    console.log("💾 [STORE] First publicInput instanceof Uint8Array:", firstInput instanceof Uint8Array);
-    if (typeof firstInput === 'string') {
-      console.log("💾 [STORE] First publicInput is string, length:", firstInput.length);
-      console.log("💾 [STORE] First publicInput value (first 50 chars):", firstInput.substring(0, 50));
-    } else if (firstInput instanceof Uint8Array) {
-      console.log("💾 [STORE] First publicInput length:", firstInput.length);
-      console.log("💾 [STORE] First publicInput bytes (first 10):", Array.from(firstInput).slice(0, 10));
-    }
-  }
   
   // IMPORTANT: The library returns publicInputs as STRINGS (hex strings), not Uint8Arrays
   // We need to preserve this format when storing
@@ -65,14 +51,12 @@ export async function createVerificationUrl(
       const numbers = Array.from(val);
       // Validate all are numbers
       if (!numbers.every(n => typeof n === 'number' && !isNaN(n) && n >= 0 && n <= 255)) {
-        console.error(`Invalid numbers in publicInputs[${idx}]:`, numbers.slice(0, 10));
         throw new Error(`publicInputs[${idx}] contains invalid byte values`);
       }
       return numbers;
     }
     // If it's already an array, validate and convert to numbers
     if (Array.isArray(val)) {
-      console.warn(`publicInputs[${idx}] is already an array, not Uint8Array`);
       const numbers = val.map((v: any) => {
         if (typeof v === 'number') {
           if (isNaN(v) || v < 0 || v > 255) {
@@ -93,7 +77,6 @@ export async function createVerificationUrl(
     }
     // If it's a string, try to parse it
     if (typeof val === 'string') {
-      console.warn(`publicInputs[${idx}] is a string, attempting to parse`);
       // Try hex string (0x...)
       if (val.startsWith('0x')) {
         const hexWithoutPrefix = val.substring(2);
@@ -137,7 +120,6 @@ export async function createVerificationUrl(
   };
 
   const proofJson = JSON.stringify(proofForStorage);
-  console.log("💾 [STORE] Proof JSON size:", proofJson.length, "chars");
   
   const apiUrl = import.meta.env.VITE_GCS_API_URL || 'http://localhost:3001/api';
   
@@ -149,8 +131,8 @@ export async function createVerificationUrl(
     },
     body: JSON.stringify({
       uuid,
-      headerMask: headerMask.slice(0, 512),
-      bodyMask: bodyMask.slice(0, 1024),
+      headerMask: headerMask, // Store full header mask, not truncated
+      bodyMask: bodyMask, // Store full body mask, not truncated
     }),
   });
 
@@ -178,7 +160,6 @@ export async function createVerificationUrl(
   const baseUrl = window.location.origin;
   const verificationUrl = `${baseUrl}/verify?id=${uuid}`;
   
-  console.log("💾 [STORE] Verification URL:", verificationUrl);
   
   return verificationUrl;
 }
@@ -203,25 +184,6 @@ export async function fetchProofData(uuid: string): Promise<{
 
     const data = await response.json();
     
-    console.log("📥 [FETCH] Retrieved data from server");
-    console.log("📥 [FETCH] data.proof.publicInputs is array:", Array.isArray(data.proof.publicInputs));
-    console.log("📥 [FETCH] data.proof.publicInputs count:", data.proof.publicInputs?.length);
-    if (Array.isArray(data.proof.publicInputs) && data.proof.publicInputs.length > 0) {
-      const firstRetrieved = data.proof.publicInputs[0];
-      console.log("📥 [FETCH] First publicInput type (raw):", typeof firstRetrieved);
-      console.log("📥 [FETCH] First publicInput is array (raw):", Array.isArray(firstRetrieved));
-      if (typeof firstRetrieved === 'string') {
-        console.log("📥 [FETCH] First publicInput is string (correct!):", firstRetrieved.substring(0, 50));
-      } else if (Array.isArray(firstRetrieved)) {
-        console.log("📥 [FETCH] First publicInput length (raw):", firstRetrieved.length);
-        console.log("📥 [FETCH] First publicInput first 10 values (raw):", firstRetrieved.slice(0, 10));
-        // Check if values are numbers or strings
-        if (firstRetrieved.length > 0) {
-          console.log("📥 [FETCH] First value type:", typeof firstRetrieved[0]);
-          console.log("📥 [FETCH] First value:", firstRetrieved[0]);
-        }
-      }
-    }
     
     // Helper function to safely convert to Uint8Array (only for proof field)
     const toUint8Array = (val: unknown, context: string = ''): Uint8Array => {
@@ -285,7 +247,6 @@ export async function fetchProofData(uuid: string): Promise<{
       publicInputs: data.proof.publicInputs.map((arr: unknown, idx: number) => {
         // If it's already a string, keep it as is (this is what the library expects)
         if (typeof arr === 'string') {
-          console.log(`📥 [FETCH] publicInputs[${idx}] is string (preserved):`, arr.substring(0, 50));
           return arr;
         }
         // If it's an array of numbers, convert to hex string
@@ -294,13 +255,11 @@ export async function fetchProofData(uuid: string): Promise<{
             const num = typeof b === 'number' ? b : parseInt(b, 10);
             return num.toString(16).padStart(2, '0');
           }).join('');
-          console.log(`📥 [FETCH] publicInputs[${idx}] converted from array to hex string:`, hexString.substring(0, 50));
           return hexString;
         }
         // If it's a Uint8Array (shouldn't happen, but handle it)
         if (arr instanceof Uint8Array) {
           const hexString = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-          console.log(`📥 [FETCH] publicInputs[${idx}] converted from Uint8Array to hex string:`, hexString.substring(0, 50));
           return hexString;
         }
         throw new Error(`Unexpected publicInput type at index ${idx}: ${typeof arr}`);
@@ -315,15 +274,6 @@ export async function fetchProofData(uuid: string): Promise<{
       })(),
     };
     
-    console.log("📥 [FETCH] Reconstructed proof");
-    console.log("📥 [FETCH] publicInputs count:", proof.publicInputs.length);
-    console.log("📥 [FETCH] First publicInput type:", typeof proof.publicInputs[0]);
-    if (typeof proof.publicInputs[0] === 'string') {
-      console.log("✅ [FETCH] First publicInput is string (correct format):", proof.publicInputs[0].substring(0, 50));
-    } else {
-      console.error("❌ [FETCH] First publicInput is NOT a string! Type:", typeof proof.publicInputs[0]);
-    }
-    console.log("📥 [FETCH] proof.proof instanceof Uint8Array:", proof.proof instanceof Uint8Array);
     
     return {
       proof,
