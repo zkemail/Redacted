@@ -1507,6 +1507,7 @@ export default function EmailCard({
           maskBits={fromMaskBits}
           onMaskBitsChange={setFromMaskBitsWithHistory}
           restrictToNameOnly={true}
+          disableSelectionMasking={disableSelectionMasking}
         />
 
         <DashedBorder />
@@ -1518,6 +1519,7 @@ export default function EmailCard({
           onToggleMask={onToggleMask ? () => onToggleMask("to") : undefined}
           maskBits={toMaskBits}
           onMaskBitsChange={setToMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
         />
 
         <DashedBorder />
@@ -1529,6 +1531,7 @@ export default function EmailCard({
           onToggleMask={onToggleMask ? () => onToggleMask("time") : undefined}
           maskBits={timeMaskBits}
           onMaskBitsChange={setTimeMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
         />
 
         <DashedBorder />
@@ -1542,6 +1545,7 @@ export default function EmailCard({
           }
           maskBits={subjectMaskBits}
           onMaskBitsChange={setSubjectMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
         />
 
         <DashedBorder />

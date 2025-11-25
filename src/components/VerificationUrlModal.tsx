@@ -29,7 +29,7 @@ export default function VerificationUrlModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#00000030] bg-opacity-10">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 relative">
         <button
           onClick={onClose}

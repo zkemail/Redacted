@@ -7,6 +7,7 @@ import { fetchProofData } from "../utils/urlEncoder";
 import { parseEmlFile } from "../utils/emlParser";
 import type { ParsedEmail } from "../utils/emlParser";
 import EmailCard from "../components/EmailCard";
+import ActionBar from "../components/ActionBar";
 import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
 
 export default function VerifyPage() {
@@ -313,30 +314,14 @@ export default function VerifyPage() {
             onMaskChange={() => {}}
             disableSelectionMasking={true} // Disable text selection masking on verify page
           />
-
-          {/* Verify Button */}
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={handleVerify}
-              disabled={isVerifying || !proof}
-              className={`px-8 py-3 rounded-lg font-medium ${
-                isVerifying || !proof
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-[#111314] text-white hover:opacity-90"
-              }`}
-            >
-              {isVerifying ? (
-                <span className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Verifying...
-                </span>
-              ) : (
-                "Verify Proof"
-              )}
-            </button>
-          </div>
         </div>
       </main>
+
+      <ActionBar
+        onVerifyProof={handleVerify}
+        isVerifyingProof={isVerifying}
+        showVerifyProof={true}
+      />
     </div>
   );
 }

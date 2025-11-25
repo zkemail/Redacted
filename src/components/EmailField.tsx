@@ -119,6 +119,7 @@ export default function EmailField({
   maskBits,
   onMaskBitsChange,
   restrictToNameOnly = false,
+  disableSelectionMasking = false,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -221,6 +222,10 @@ export default function EmailField({
   }, [value, localMaskBits, createMaskedHtml]);
 
   const handleMouseUp = useCallback(() => {
+    // If selection masking is disabled, don't show mask buttons
+    if (disableSelectionMasking) {
+      return;
+    }
     const container = fieldRef.current;
     if (!container) return;
     const selection = window.getSelection();
@@ -317,7 +322,7 @@ export default function EmailField({
       maskState: maskStateForSelection,
     });
     setShowMaskButton(true);
-  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange]);
+  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange, disableSelectionMasking]);
 
   const handleMaskSelection = useCallback(() => {
     if (!currentSelection || !onMaskBitsChange) return;
