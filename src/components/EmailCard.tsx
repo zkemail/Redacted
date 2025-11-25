@@ -136,6 +136,7 @@ interface EmailCardProps {
   onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void; // Callback to update undo/redo button states
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
   onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
+  disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
 }
 
 export default function EmailCard({
@@ -148,6 +149,7 @@ export default function EmailCard({
   onUndoRedoStateChange,
   onUndoRedoHandlersReady,
   onMaskChange,
+  disableSelectionMasking = false,
 }: EmailCardProps) {
   const bodyText = email.bodyText ?? "";
 
@@ -912,6 +914,10 @@ export default function EmailCard({
   }, []);
 
   const handleMouseUpOnBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // If selection masking is disabled, don't show mask buttons
+    if (disableSelectionMasking) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const container = bodyContainerRef.current;
@@ -1000,7 +1006,7 @@ export default function EmailCard({
       maskState: maskStateForSelection,
     });
     setShowMaskButton(true);
-  }, [bodyText, bodyMaskBits, clearSelectionState]);
+  }, [bodyText, bodyMaskBits, clearSelectionState, disableSelectionMasking]);
 
   // Helper function to restore selection from text offsets
   const restoreSelectionFromOffsets = useCallback((start: number, end: number) => {

@@ -7,7 +7,7 @@ import { fetchProofData } from "../utils/urlEncoder";
 import { parseEmlFile } from "../utils/emlParser";
 import type { ParsedEmail } from "../utils/emlParser";
 import EmailCard from "../components/EmailCard";
-import Header from "../components/Header";
+import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
 
 export default function VerifyPage() {
   const [searchParams] = useSearchParams();
@@ -19,7 +19,10 @@ export default function VerifyPage() {
     message: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [proof, setProof] = useState<any>(null);
+  const [proof, setProof] = useState<{
+    publicInputs: string[];
+    proof: Uint8Array;
+  } | null>(null);
 
   useEffect(() => {
     const loadVerificationData = async () => {
@@ -37,7 +40,7 @@ export default function VerifyPage() {
         }
 
         // Fetch all data (proof, EML URL, masks) from server using UUID
-        const { proof: decodedProof, emlUrl, headerMask: decodedHeaderMask, bodyMask: decodedBodyMask } = await fetchProofData(uuid);
+        const { proof: decodedProof, emlUrl } = await fetchProofData(uuid);
         
         if (!decodedProof || !emlUrl) {
           setError("Failed to load data. The proof may have expired or been deleted.");
@@ -50,7 +53,7 @@ export default function VerifyPage() {
         console.log("decodedProof:", decodedProof);
         console.log("decodedProof.publicInputs:", decodedProof.publicInputs);
         console.log("decodedProof.publicInputs length:", decodedProof.publicInputs?.length);
-        console.log("decodedProof.publicInputs types:", decodedProof.publicInputs?.map((arr: any) => {
+        console.log("decodedProof.publicInputs types:", decodedProof.publicInputs?.map((arr: unknown) => {
           if (arr instanceof Uint8Array) return 'Uint8Array';
           if (Array.isArray(arr)) return 'Array';
           return typeof arr;
@@ -167,18 +170,36 @@ export default function VerifyPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-        <Header onChangeEmail={() => window.location.href = '/'} />
+        {/* Simplified Header - no buttons */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
+          <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+            <img
+              src="/src/assets/WhistleblowerLogo.svg"
+              height={16}
+              width={104}
+              alt="Whistleblow Logo"
+            />
+          </div>
+        </div>
+        <div className="hidden md:block">
+          <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
+            <div>
+              <img
+                src="/src/assets/WhistleblowerLogo.svg"
+                height={16}
+                width={104}
+                alt="Whistleblow Logo"
+              />
+            </div>
+            <div className="w-px h-6 bg-[#D4D4D4]" />
+            <div className="text-[#111314]">Verify</div>
+          </div>
+        </div>
         <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm p-8 text-center">
             <div className="text-red-600 text-6xl mb-4">⚠️</div>
             <h1 className="text-2xl font-semibold text-[#111314] mb-2">Verification Error</h1>
             <p className="text-[#666] mb-6">{error}</p>
-            <button
-              onClick={() => window.location.href = '/'}
-              className="px-6 py-2 bg-[#111314] text-white rounded hover:opacity-90"
-            >
-              Go to Home
-            </button>
           </div>
         </main>
       </div>
@@ -188,7 +209,31 @@ export default function VerifyPage() {
   if (!email) {
     return (
       <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-        <Header onChangeEmail={() => window.location.href = '/'} />
+        {/* Simplified Header - no buttons */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
+          <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+            <img
+              src="/src/assets/WhistleblowerLogo.svg"
+              height={16}
+              width={104}
+              alt="Whistleblow Logo"
+            />
+          </div>
+        </div>
+        <div className="hidden md:block">
+          <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
+            <div>
+              <img
+                src="/src/assets/WhistleblowerLogo.svg"
+                height={16}
+                width={104}
+                alt="Whistleblow Logo"
+              />
+            </div>
+            <div className="w-px h-6 bg-[#D4D4D4]" />
+            <div className="text-[#111314]">Verify</div>
+          </div>
+        </div>
         <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm p-8 text-center">
             <p className="text-[#666]">No email data available</p>
@@ -200,7 +245,31 @@ export default function VerifyPage() {
 
   return (
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-      <Header onChangeEmail={() => window.location.href = '/'} />
+      {/* Simplified Header - no buttons */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
+        <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+          <img
+            src={WhistleblowerLogo}
+            height={16}
+            width={104}
+            alt="Whistleblow Logo"
+          />
+        </div>
+      </div>
+      <div className="hidden md:block">
+        <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
+          <div>
+            <img
+              src={WhistleblowerLogo}
+              height={16}
+              width={104}
+              alt="Whistleblow Logo"
+            />
+          </div>
+          <div className="w-px h-6 bg-[#D4D4D4]" />
+          <div className="text-[#111314]">Verify</div>
+        </div>
+      </div>
       
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
         <div className="max-w-4xl mx-auto">
@@ -223,7 +292,7 @@ export default function VerifyPage() {
             </div>
           )}
 
-          {/* Email Card - Show redacted content */}
+          {/* Email Card - Show redacted content only, no toggle buttons */}
           <EmailCard
             title="Redacted Email"
             email={{
@@ -236,12 +305,13 @@ export default function VerifyPage() {
               originalEml: email.raw, // Pass original EML for proper masking
             }}
             isMasked={true}
-            onToggleMask={() => {}} // Disable toggling on verify page
+            onToggleMask={undefined} // Remove toggle functionality
             resetTrigger={0}
             maskedFields={new Set(['from', 'to', 'time', 'subject', 'body'])} // Show all fields as masked (redacted)
             onUndoRedoHandlersReady={() => {}}
             onUndoRedoStateChange={() => {}}
             onMaskChange={() => {}}
+            disableSelectionMasking={true} // Disable text selection masking on verify page
           />
 
           {/* Verify Button */}
