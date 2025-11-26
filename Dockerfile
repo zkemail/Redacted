@@ -5,7 +5,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Accept build arguments for Vite environment variables
-# Render will automatically pass environment variables as build args
+# Render needs to pass this as a build argument
 ARG VITE_GCS_API_URL
 ENV VITE_GCS_API_URL=${VITE_GCS_API_URL}
 
@@ -18,11 +18,23 @@ RUN yarn install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Build the client (Vite will use VITE_GCS_API_URL env var)
+# Create .env.production file for Vite if VITE_GCS_API_URL is provided
+# Vite automatically loads .env.production during build
+RUN if [ -n "$VITE_GCS_API_URL" ]; then \
+      echo "VITE_GCS_API_URL=$VITE_GCS_API_URL" > .env.production && \
+      echo "Created .env.production with VITE_GCS_API_URL=$VITE_GCS_API_URL"; \
+    else \
+      echo "Warning: VITE_GCS_API_URL not set - frontend may use default localhost URL"; \
+    fi
+
+# Build the client (Vite will use VITE_GCS_API_URL from .env.production or env var)
 RUN yarn build
 
 # Production stage
 FROM node:20-alpine AS production
+
+# Install git (required by some npm packages)
+RUN apk add --no-cache git
 
 # Set working directory
 WORKDIR /app
