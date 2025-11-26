@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: whistleblowing-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter  # Change to 'standard' or 'pro' for production
+    region: oregon  # Change to your preferred region
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000  # Render uses port 10000 by default
+      # Google Cloud Storage Configuration
+      - key: GCS_PROJECT_ID
+        sync: false  # Set this in Render dashboard
+      - key: GCS_BUCKET_NAME
+        sync: false  # Set this in Render dashboard
+      # Use GCS_CREDENTIALS (recommended) or GCS_KEY_FILE
+      - key: GCS_CREDENTIALS
+        sync: false  # Set this in Render dashboard as a JSON string
+      # Optional: CORS origins (comma-separated)
+      - key: ALLOWED_ORIGINS
+        sync: false  # Set to your Render service URL if needed
+      # Frontend API URL (set to your Render service URL)
+      # IMPORTANT: Set this to https://your-service-name.onrender.com/api
+      # Replace 'your-service-name' with your actual Render service name
+      - key: VITE_GCS_API_URL
+        sync: false  # Set this in Render dashboard before first deploy
+

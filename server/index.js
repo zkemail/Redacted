@@ -332,6 +332,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Serve static files from the built client in production (must be after all API routes)
+if (process.env.NODE_ENV === 'production') {
+  const distPath = join(__dirname, '..', 'dist');
+  app.use(express.static(distPath));
+  
+  // Serve index.html for all non-API routes (SPA routing)
+  app.get('*', (req, res) => {
+    res.sendFile(join(distPath, 'index.html'));
+  });
+}
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
