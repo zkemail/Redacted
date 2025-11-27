@@ -17,6 +17,8 @@ interface EmailFieldProps {
   maskBits?: number[];
   onMaskBitsChange?: (bits: number[]) => void;
   restrictToNameOnly?: boolean; // For "From" field, only allow masking name part (before @)
+  disableSelectionMasking?: boolean;
+  useBlackMask?: boolean;
 }
 
 // Component to highlight selected text using Range API
@@ -343,7 +345,6 @@ export default function EmailField({
         // Try to adjust the selection to only include the name part
         const sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
-          const adjustedRange = sel.getRangeAt(0).cloneRange();
           // This is tricky - we'd need to find the text nodes and adjust
           // For now, just clear selection if it includes domain
           if (rangeToEnd.toString().length > maskableRange.end) {

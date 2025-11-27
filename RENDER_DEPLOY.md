@@ -32,7 +32,7 @@ This guide will help you deploy the whistleblowing application to Render.com usi
    **Required:**
    - `GCS_PROJECT_ID` - Your Google Cloud Project ID
    - `GCS_BUCKET_NAME` - Your GCS bucket name
-   - `GCS_CREDENTIALS` - Your service account JSON as a string (see below)
+   - `GCS_CREDENTIALS` - Your service account gsJSON as a string (see below)
    - `VITE_GCS_API_URL` - Your Render service URL (e.g., `https://your-app.onrender.com/api`)
    
    **Optional:**

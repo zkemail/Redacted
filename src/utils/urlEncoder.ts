@@ -9,114 +9,60 @@ export async function createVerificationUrl(
   headerMask: number[],
   bodyMask: number[]
 ): Promise<string> {
-  
-  // IMPORTANT: The library returns publicInputs as STRINGS (hex strings), not Uint8Arrays
-  // We need to preserve this format when storing
-  const proofForStorage = {
-    publicInputs: proof.publicInputs.map((arr: any) => {
-      // If it's already a string, keep it as is
-      if (typeof arr === 'string') {
-        return arr;
-      }
-      // If it's a Uint8Array, convert to hex string
-      if (arr instanceof Uint8Array) {
-        return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-      }
-      // If it's an array of numbers, convert to hex string
-      if (Array.isArray(arr)) {
-        return arr.map((b: any) => {
-          const num = typeof b === 'number' ? b : parseInt(b, 10);
-          return num.toString(16).padStart(2, '0');
-        }).join('');
-      }
-      // Fallback: convert to string
-      return String(arr);
-    }),
-    proof: (() => {
-      // Proof field should be Uint8Array, convert to array of numbers
-      if (proof.proof instanceof Uint8Array) {
-        return Array.from(proof.proof);
-      }
-      if (Array.isArray(proof.proof)) {
-        return proof.proof.map((v: any) => typeof v === 'number' ? v : parseInt(v, 10));
-      }
-      throw new Error(`Unexpected proof type: ${typeof proof.proof}`);
-    })(),
+  const normalizePublicInput = (value: unknown): string => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value instanceof Uint8Array) {
+      return Array.from(value)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => {
+          const num =
+            typeof entry === "number"
+              ? entry
+              : typeof entry === "string"
+                ? parseInt(entry, 10)
+                : NaN;
+          if (Number.isNaN(num)) {
+            throw new Error("Invalid public input entry; expected number-like value");
+          }
+          return num.toString(16).padStart(2, "0");
+        })
+        .join("");
+    }
+    return String(value);
   };
-  
-  // Old conversion code removed - we now preserve strings as strings
-  const convertToNumberArray = (val: unknown, idx: number): number[] => {
-    if (val instanceof Uint8Array) {
-      // Convert Uint8Array to array of numbers
-      const numbers = Array.from(val);
-      // Validate all are numbers
-      if (!numbers.every(n => typeof n === 'number' && !isNaN(n) && n >= 0 && n <= 255)) {
-        throw new Error(`publicInputs[${idx}] contains invalid byte values`);
-      }
-      return numbers;
+
+  const normalizeProofBytes = (): number[] => {
+    const rawProof: unknown = proof.proof as unknown;
+    if (rawProof instanceof Uint8Array) {
+      return Array.from(rawProof);
     }
-    // If it's already an array, validate and convert to numbers
-    if (Array.isArray(val)) {
-      const numbers = val.map((v: any) => {
-        if (typeof v === 'number') {
-          if (isNaN(v) || v < 0 || v > 255) {
-            throw new Error(`Invalid byte value in publicInputs[${idx}]: ${v}`);
-          }
-          return v;
+    if (Array.isArray(rawProof)) {
+      return rawProof.map((entry) => {
+        if (typeof entry === "number") {
+          return entry;
         }
-        if (typeof v === 'string') {
-          const num = parseInt(v, 10);
-          if (isNaN(num) || num < 0 || num > 255) {
-            throw new Error(`Invalid byte value in publicInputs[${idx}]: ${v}`);
+        if (typeof entry === "string") {
+          const parsed = parseInt(entry, 10);
+          if (Number.isNaN(parsed)) {
+            throw new Error(`Invalid proof byte value: ${entry}`);
           }
-          return num;
+          return parsed;
         }
-        throw new Error(`Invalid value type in publicInputs[${idx}]: ${typeof v}`);
+        throw new Error(`Unexpected proof byte type: ${typeof entry}`);
       });
-      return numbers;
     }
-    // If it's a string, try to parse it
-    if (typeof val === 'string') {
-      // Try hex string (0x...)
-      if (val.startsWith('0x')) {
-        const hexWithoutPrefix = val.substring(2);
-        const bytes: number[] = [];
-        for (let i = 0; i < hexWithoutPrefix.length; i += 2) {
-          const byte = parseInt(hexWithoutPrefix.substr(i, 2), 16);
-          if (isNaN(byte) || byte < 0 || byte > 255) {
-            throw new Error(`Invalid hex byte in publicInputs[${idx}] at position ${i}`);
-          }
-          bytes.push(byte);
-        }
-        return bytes;
-      }
-      // Try comma-separated numbers
-      if (val.includes(',')) {
-        const parts = val.split(',').map(s => {
-          const num = parseInt(s.trim(), 10);
-          if (isNaN(num) || num < 0 || num > 255) {
-            throw new Error(`Invalid byte value in publicInputs[${idx}]: ${s.trim()}`);
-          }
-          return num;
-        });
-        return parts;
-      }
-      // Try base64
-      try {
-        const binary = atob(val);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return Array.from(bytes);
-      } catch {
-        // If base64 fails, treat as raw string and encode
-        const encoder = new TextEncoder();
-        const encoded = encoder.encode(val);
-        return Array.from(encoded);
-      }
-    }
-    throw new Error(`Unexpected publicInput type at index ${idx}: ${typeof val}`);
+    throw new Error(`Unexpected proof type: ${typeof rawProof}`);
+  };
+
+  const proofForStorage = {
+    publicInputs: (proof.publicInputs ?? []).map((input) => normalizePublicInput(input)),
+    proof: normalizeProofBytes(),
   };
 
   const proofJson = JSON.stringify(proofForStorage);

@@ -7,102 +7,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from "react";
 import EmailField from "./EmailField";
 import DashedBorder from "./DashedBorder";
-
-// Component to highlight selected text using Range API
-function SelectionHighlight({
-  containerRef,
-  isActive,
-}: {
-  containerRef: RefObject<HTMLDivElement | null>;
-  isActive: boolean;
-}) {
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!isActive || !containerRef.current) {
-      return;
-    }
-
-    const updatePosition = () => {
-      if (!isActive || !containerRef.current) {
-        return;
-      }
-
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        setPosition(null);
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      const container = containerRef.current;
-      if (!container) return;
-
-      // Check if selection is within our container
-      if (!container.contains(range.commonAncestorContainer)) {
-        setPosition(null);
-        return;
-      }
-
-      const rect = range.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-
-      // Calculate position relative to container
-      const top = rect.top - containerRect.top + container.scrollTop;
-      const left = rect.left - containerRect.left;
-      const width = rect.width;
-      const height = rect.height;
-
-      setPosition({ top, left, width, height });
-    };
-
-    // Update immediately
-    updatePosition();
-
-    // Update on selection change
-    const handleSelectionChange = () => {
-      updatePosition();
-    };
-
-    // Update on scroll
-    const handleScroll = () => {
-      updatePosition();
-    };
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-    const container = containerRef.current;
-    container.addEventListener("scroll", handleScroll);
-
-    return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
-      container.removeEventListener("scroll", handleScroll);
-    };
-  }, [containerRef, isActive]);
-
-  if (!position || !isActive) return null;
-
-  return (
-    <div
-      className="absolute pointer-events-none bg-[#5e6ad2]/40 border-2 border-[#5e6ad2]/70 rounded-sm transition-all duration-200 shadow-lg"
-      style={{
-        top: `${position.top}px`,
-        left: `${position.left}px`,
-        width: `${position.width}px`,
-        height: `${position.height}px`,
-        zIndex: 1,
-      }}
-    />
-  );
-}
 
 type SelectionInfo = {
   start: number;
@@ -119,7 +26,6 @@ type MaskBitsState = {
 };
 
 interface EmailCardProps {
-  title: string;
   email: {
     from: string;
     to: string;
@@ -154,9 +60,7 @@ interface EmailCardProps {
 }
 
 export default function EmailCard({
-  title,
   email,
-  isMasked = false,
   onToggleMask,
   resetTrigger,
   maskedFields = new Set(),
@@ -324,20 +228,6 @@ export default function EmailCard({
       }, 0);
     }
   }, [historyIndex, history, onUndoRedoStateChange]);
-  const [emailMask, setEmailMask] = useState<{
-    eml: string;
-    bits: number[];
-    mask: string;
-    bodyMappingPosition?: number; // Where body bits were mapped in EML
-  } | null>(null);
-  const [bodyMaskInfo, setBodyMaskInfo] = useState<{
-    startPosition: number;
-    bits: number[];
-    sum: number;
-    length: number;
-    note?: string; // Explanation of what this represents
-  } | null>(null);
-  const [bodyMappingPosition, setBodyMappingPosition] = useState<number>(-1);
 
   // Reset mask bits when email content changes - use key prop in parent to trigger remount
   const emailKey = `${email.from}-${email.to}-${email.time}-${
@@ -363,7 +253,6 @@ export default function EmailCard({
         setTimeMaskBits(resetState.timeMaskBits);
         setSubjectMaskBits(resetState.subjectMaskBits);
         setBodyMaskBits(resetState.bodyMaskBits);
-        setEmailMask(null);
         // Reset history for new email
         setHistory([resetState]);
         setHistoryIndex(0);
@@ -634,7 +523,6 @@ export default function EmailCard({
         setTimeMaskBits(resetState.timeMaskBits);
         setSubjectMaskBits(resetState.subjectMaskBits);
         setBodyMaskBits(resetState.bodyMaskBits);
-        setEmailMask(null);
         // Clear any active selections
         const sel = window.getSelection();
         if (sel) sel.removeAllRanges();
@@ -901,8 +789,6 @@ export default function EmailCard({
           }
         }
 
-        const expandedSum = expandedBits.reduce((a, b) => a + b, 0);
-
         // Collect all text nodes first to avoid issues with modifying DOM while walking
         const textNodes: Text[] = [];
         const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
@@ -1005,8 +891,6 @@ export default function EmailCard({
     const bits = bodyMaskBits.length === bodyText.length 
       ? bodyMaskBits 
       : new Array(bodyText.length).fill(0);
-    
-    const bitsSum = bits.reduce((a, b) => a + b, 0);
     
     if (email.bodyHtml) {
       return createMaskedHtmlFromHtml(email.bodyHtml, bits);
@@ -1192,7 +1076,10 @@ export default function EmailCard({
 
   // Restore selection after DOM update when showMaskButton becomes true
   useLayoutEffect(() => {
-    if (!showMaskButton || !savedSelectionRangeRef.current || !savedSelectionOffsetsRef.current) {
+    const savedRange = savedSelectionRangeRef.current;
+    const offsets = savedSelectionOffsetsRef.current;
+
+    if (!showMaskButton || !savedRange || !offsets) {
       return;
     }
 
@@ -1203,41 +1090,31 @@ export default function EmailCard({
 
     // Use requestAnimationFrame to ensure DOM is fully updated
     requestAnimationFrame(() => {
-      // Try to restore the saved Range first
-      try {
-        const savedRange = savedSelectionRangeRef.current;
-        const selection = window.getSelection();
-        if (selection) {
-          // Check if the Range nodes are still valid (not detached)
-          try {
-            // Test if we can access the range properties without error
-            const test = savedRange.startContainer;
-            const isInContainer = test && container.contains(test);
+      const selection = window.getSelection();
+      if (selection) {
+        try {
+          const isStartInContainer =
+            !!savedRange.startContainer &&
+            container.contains(savedRange.startContainer);
+          const isEndInContainer =
+            !!savedRange.endContainer &&
+            container.contains(savedRange.endContainer);
+          const isTextNode =
+            savedRange.startContainer?.nodeType === Node.TEXT_NODE &&
+            savedRange.endContainer?.nodeType === Node.TEXT_NODE;
 
-            // Check if Range points to text nodes (nodeType 3) or if it's pointing to elements
-            const isTextNode = savedRange.startContainer.nodeType === Node.TEXT_NODE;
-            const isEndTextNode = savedRange.endContainer.nodeType === Node.TEXT_NODE;
-            
-            if (isInContainer && isTextNode && isEndTextNode) {
-              selection.removeAllRanges();
-              selection.addRange(savedRange);
-              
-              const restoredText = savedRange.toString();
-              // Only consider it successful if we actually restored text content
-              if (restoredText.length > 0) {
-                return; // Successfully restored from saved Range
-              }
+          if (isStartInContainer && isEndInContainer && isTextNode) {
+            selection.removeAllRanges();
+            selection.addRange(savedRange);
+            if (savedRange.toString().length > 0) {
+              return;
             }
-          } catch (e) {
-            // Range nodes are stale, fall through to restore from offsets
           }
+        } catch {
+          // Fall through to offset-based restoration
         }
-      } catch (e) {
-        // Range is invalid, fall through to restore from offsets
       }
 
-      // If Range restoration failed, restore from text offsets
-      const offsets = savedSelectionOffsetsRef.current;
       restoreSelectionFromOffsets(offsets.start, offsets.end);
     });
   }, [showMaskButton, restoreSelectionFromOffsets]);
@@ -1623,13 +1500,11 @@ export default function EmailCard({
     }
     
     // 3. If still not found, try to find body content by looking for common email body markers
-    let fallbackBodyStart = -1;
     if (!bodyMapped && bodyMaskBits.length > 0) {
       // Look for common patterns that indicate the start of email body
       // Try to find "\r\n\r\n" or "\n\n" which often separates headers from body
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
-      fallbackBodyStart = bodyStart;
       
       if (bodyStart > 0 && bodyStart < originalEml.length) {
         // Try to map bodyMaskBits starting from bodyStart position
@@ -1649,10 +1524,6 @@ export default function EmailCard({
     }
     
     // Store the body mapping position for later extraction
-    const bodyMappingPosition = fallbackBodyStart >= 0 ? fallbackBodyStart : -1;
-    
-    const totalBitsSet = bits.reduce((a, b) => a + b, 0);
-
     return {
       eml: originalEml,
       bits,
@@ -1712,42 +1583,6 @@ export default function EmailCard({
     email.originalEml,
     onMaskChange,
   ]);
-
-  // Update emailMask state whenever aggregatedMask changes
-  useEffect(() => {
-    setEmailMask(aggregatedMask);
-  }, [aggregatedMask]);
-
-  // Extract and store body mask bits from emailMask for the ENTIRE body section in EML
-  useEffect(() => {
-    if (!emailMask || !email.originalEml) {
-      setBodyMaskInfo(null);
-      return;
-    }
-    
-    // Find where the body starts in the EML
-    const bodySeparator = email.originalEml.indexOf('\r\n\r\n');
-    const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : email.originalEml.indexOf('\n\n') + 2;
-    
-    if (bodyStart > 0 && bodyStart < emailMask.bits.length) {
-      // Extract bits for the ENTIRE body section (from bodyStart to end of EML)
-      // This represents all mask bits for the body in the original EML file
-      const bodyEnd = emailMask.bits.length;
-      const bodyBits = emailMask.bits.slice(bodyStart, bodyEnd);
-      const bodyBitsSum = bodyBits.reduce((a, b) => a + b, 0);
-      
-      setBodyMaskInfo({
-        startPosition: bodyStart,
-        bits: bodyBits,
-        sum: bodyBitsSum,
-        length: bodyBits.length,
-        note: `Body mask bits for entire EML body section (${bodyBits.length} chars, from position ${bodyStart} to ${bodyEnd})`
-      });
-    } else {
-      setBodyMaskInfo(null);
-    }
-  }, [emailMask, email.originalEml]);
-
 
   return (
     <div className="bg-[#EAEAEA] p-4 md:p-6 h-[calc(100vh-48px-64px)] md:h-[calc(100vh-104px)] overflow-auto">

@@ -1,6 +1,9 @@
 # Multi-stage build for optimal image size
 FROM node:20-alpine AS builder
 
+# Install git (required by some npm packages)
+RUN apk add --no-cache git
+
 # Set working directory
 WORKDIR /app
 

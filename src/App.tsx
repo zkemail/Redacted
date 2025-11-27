@@ -157,7 +157,6 @@ export default function Home() {
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
-          title="Masked Mail"
           email={{
             ...email,
             ranges: parsedEmail?.ranges ? {
@@ -183,7 +182,6 @@ export default function Home() {
               } : undefined,
             } : undefined,
           }}
-          isMasked={true}
           onToggleMask={handleToggleMask}
           resetTrigger={resetTrigger}
           maskedFields={maskedFields}

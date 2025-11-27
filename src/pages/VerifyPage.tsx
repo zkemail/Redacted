@@ -445,7 +445,6 @@ export default function VerifyPage() {
 
           {/* Email Card - Show redacted content using masks from proof */}
           <EmailCard
-            title="Redacted Email"
             email={{
               from: email.from || "Unknown",
               to: email.to || "Unknown",
@@ -455,7 +454,6 @@ export default function VerifyPage() {
               bodyHtml: email.bodyHtml,
               originalEml: email.raw,
             }}
-            isMasked={false}
             onToggleMask={undefined}
             resetTrigger={0}
             maskedFields={new Set()}

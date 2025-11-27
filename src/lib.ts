@@ -1,13 +1,15 @@
 import "./polyfills";
 import { UltraHonkBackend, type ProofData } from "@aztec/bb.js";
-import { Noir } from "@noir-lang/noir_js";
+import { Noir, type CompiledCircuit } from "@noir-lang/noir_js";
 import initNoirC from "@noir-lang/noirc_abi";
 import initACVM from "@noir-lang/acvm_js";
 import acvm from "@noir-lang/acvm_js/web/acvm_js_bg.wasm?url";
 import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 // import circuit from "./circuit/target/circuit.json";
 import { generateEmailVerifierInputs } from "@zk-email/zkemail-nr";
-import circuitEmailMask from "./circuit/target/email_mask.json";
+import circuitEmailMaskJson from "./circuit/target/email_mask.json";
+
+const circuitEmailMask = circuitEmailMaskJson as CompiledCircuit;
 
 // Initialize WASM modules
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
