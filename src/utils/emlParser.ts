@@ -1,4 +1,4 @@
-import PostalMime from 'postal-mime';
+import PostalMime, { type Address } from 'postal-mime';
 
 export interface EmailFieldRange {
   rawStart: number;
@@ -45,11 +45,28 @@ function processEmailBody(html: string): string {
  * Falls back to regex parsing if PostalMime fails.
  * All ranges are provided relative to the original raw string.
  */
+const getAddressFromEntry = (entry?: Address): string => {
+  if (!entry) return '';
+  if ('address' in entry && entry.address) {
+    return entry.address;
+  }
+  if ('group' in entry && Array.isArray(entry.group) && entry.group.length > 0) {
+    const first = entry.group[0];
+    return first.address || first.name || '';
+  }
+  return entry.name || '';
+};
+
+const getFirstAddress = (entries?: Address[]): string => {
+  if (!entries || entries.length === 0) return '';
+  return getAddressFromEntry(entries[0]);
+};
+
 export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   const raw = emlContent;
 
   const parser = new PostalMime();
-  let parsedEmail;
+  let parsedEmail: Awaited<ReturnType<PostalMime["parse"]>> | undefined;
 
   // Helper to find header ranges inside the raw text
   const doubleNewlineMatch = /\r?\n\r?\n/.exec(raw);
@@ -109,18 +126,18 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   let to = '';
   let subject = '';
   let emailBodyText = '';
-  let emailBodyHtml = '';
-  let dkimSignature = '';
-  let canonicalizedHeaders = '';
-  let canonicalizedBody = '';
-  let minimalEmlContent = '';
+  let emailBodyHtml: string | undefined;
+  let dkimSignature: string | undefined;
+  let canonicalizedHeaders: string | undefined;
+  let canonicalizedBody: string | undefined;
+  let minimalEmlContent: string | undefined;
 
   try {
     parsedEmail = await parser.parse(emlContent);
 
     // Extract TO, FROM, SUBJECT values
-    from = parsedEmail?.from?.value?.[0]?.address || '';
-    to = parsedEmail?.to?.value?.[0]?.address || '';
+    from = getAddressFromEntry(parsedEmail?.from);
+    to = getFirstAddress(parsedEmail?.to);
     subject = parsedEmail?.subject || '';
 
     if (!from || !to || !subject) {
@@ -154,21 +171,21 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
       })
       .filter(Boolean) as string[];
 
-    canonicalizedHeaders = canonicalizedHeadersArray.join('\r\n');
+    canonicalizedHeaders = canonicalizedHeadersArray.join('\r\n') || undefined;
 
     // Canonicalize body (using text/plain part for DKIM signing)
-    canonicalizedBody = emailBodyText || 'No body content found';
-    canonicalizedBody = canonicalizedBody
+    const normalizedBody = (emailBodyText || 'No body content found')
       .replace(/[\t ]+(\r?\n)/g, '$1')  // Remove trailing spaces from lines
       .replace(/\r?\n$/, '\r\n')        // Ensure single newline at end
       .trim();
+    canonicalizedBody = normalizedBody || undefined;
 
     // Build minimal EML content with canonicalized DKIM parts
     minimalEmlContent = [
-      dkimSignature,
-      canonicalizedHeaders,
+      dkimSignature ?? '',
+      canonicalizedHeaders ?? '',
       '',
-      canonicalizedBody
+      canonicalizedBody ?? ''
     ].join('\r\n\r\n');
 
   } catch (error) {

@@ -17,6 +17,8 @@ interface EmailFieldProps {
   maskBits?: number[];
   onMaskBitsChange?: (bits: number[]) => void;
   restrictToNameOnly?: boolean; // For "From" field, only allow masking name part (before @)
+  disableSelectionMasking?: boolean;
+  useBlackMask?: boolean;
 }
 
 // Component to highlight selected text using Range API
@@ -119,6 +121,8 @@ export default function EmailField({
   maskBits,
   onMaskBitsChange,
   restrictToNameOnly = false,
+  disableSelectionMasking = false,
+  useBlackMask = false,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -147,10 +151,17 @@ export default function EmailField({
   // Initialize mask bits if not provided
   const localMaskBits = useMemo(() => {
     if (maskBits && maskBits.length === value.length) {
-      return maskBits;
+      // For restrictToNameOnly fields, ensure domain part is always 0
+      const bits = [...maskBits];
+      if (restrictToNameOnly && maskableRange.end < value.length) {
+        for (let i = maskableRange.end; i < value.length; i++) {
+          bits[i] = 0;
+        }
+      }
+      return bits;
     }
     return new Array(value.length).fill(0);
-  }, [maskBits, value.length]);
+  }, [maskBits, value.length, restrictToNameOnly, maskableRange.end]);
 
   // Track previous isMasked to detect changes and update mask bits
   const prevIsMaskedRef = useRef(isMasked);
@@ -165,19 +176,27 @@ export default function EmailField({
     
     const newBits = [...localMaskBits];
     if (isMasked) {
-      // Hide all: set mask bits to 1 for the maskable range
+      // Hide: set mask bits to 1 for the maskable range only
+      // For restrictToNameOnly fields, this is only the name part (before @)
+      // For other fields, this is the entire field
       for (let i = maskableRange.start; i < maskableRange.end; i++) {
         newBits[i] = 1;
       }
+      // Ensure domain part (after @) is never masked for restrictToNameOnly fields
+      if (restrictToNameOnly && maskableRange.end < value.length) {
+        for (let i = maskableRange.end; i < value.length; i++) {
+          newBits[i] = 0;
+        }
+      }
     } else {
-      // Show all: set mask bits to 0 for the maskable range
+      // Show: set mask bits to 0 for the maskable range
       for (let i = maskableRange.start; i < maskableRange.end; i++) {
         newBits[i] = 0;
       }
     }
     
     onMaskBitsChange(newBits);
-  }, [isMasked, maskableRange.start, maskableRange.end, localMaskBits, onMaskBitsChange]);
+  }, [isMasked, maskableRange.start, maskableRange.end, localMaskBits, onMaskBitsChange, restrictToNameOnly, value.length]);
 
   const escapeHtml = useCallback((text: string) => {
     return text
@@ -190,10 +209,15 @@ export default function EmailField({
 
   const createMaskedHtml = useCallback(
     (text: string, bits: number[]) => {
-      if (!text || bits.length !== text.length) return escapeHtml(text);
+      if (!text || bits.length !== text.length) {
+        console.warn(`[EmailField] Text and bits length mismatch: text=${text.length}, bits=${bits.length}`);
+        return escapeHtml(text);
+      }
 
       let result = "";
       let index = 0;
+      let maskedSegments = 0;
+      let unmaskedSegments = 0;
 
       while (index < text.length) {
         const currentMask = bits[index] ?? 0;
@@ -203,24 +227,55 @@ export default function EmailField({
         }
         const segment = text.slice(index, end);
         const escapedSegment = escapeHtml(segment);
+        
+        // For restrictToNameOnly fields, make domain part (after @) unselectable
+        const isDomainPart = restrictToNameOnly && index >= maskableRange.end;
+        const unselectableStyle = isDomainPart ? ' style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;"' : '';
+        
         if (currentMask === 1) {
-          result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80">${escapedSegment}</span>`;
+          maskedSegments++;
+          if (useBlackMask) {
+            // Solid black mask - completely hides the text
+            // Use inline styles to ensure the black background is applied
+            result += `<span style="background-color: #000000; color: #000000; display: inline;"${unselectableStyle}>${escapedSegment}</span>`;
+          } else {
+            // Semi-transparent red mask with line-through (original style)
+            result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80"${unselectableStyle}>${escapedSegment}</span>`;
+          }
         } else {
-          result += escapedSegment;
+          unmaskedSegments++;
+          result += `<span${unselectableStyle}>${escapedSegment}</span>`;
         }
         index = end;
       }
 
+
       return result;
     },
-    [escapeHtml]
+    [escapeHtml, useBlackMask, label, restrictToNameOnly, maskableRange.end]
   );
 
+  // Ensure domain part is always unmasked for restrictToNameOnly fields
+  const sanitizedMaskBits = useMemo(() => {
+    const bits = [...localMaskBits];
+    if (restrictToNameOnly && maskableRange.end < value.length) {
+      // Ensure domain part (after @) is always 0
+      for (let i = maskableRange.end; i < value.length; i++) {
+        bits[i] = 0;
+      }
+    }
+    return bits;
+  }, [localMaskBits, restrictToNameOnly, maskableRange.end, value.length]);
+
   const maskedHtml = useMemo(() => {
-    return createMaskedHtml(value, localMaskBits);
-  }, [value, localMaskBits, createMaskedHtml]);
+    return createMaskedHtml(value, sanitizedMaskBits);
+  }, [value, sanitizedMaskBits, createMaskedHtml]);
 
   const handleMouseUp = useCallback(() => {
+    // If selection masking is disabled, don't show mask buttons
+    if (disableSelectionMasking) {
+      return;
+    }
     const container = fieldRef.current;
     if (!container) return;
     const selection = window.getSelection();
@@ -269,15 +324,38 @@ export default function EmailField({
     selectionEnd = Math.max(0, Math.min(selectionEnd, value.length));
 
     // Restrict selection to maskable range for "From" field
+    // If selection includes domain part, restrict it to only the name part
     if (restrictToNameOnly) {
-      if (selectionStart >= maskableRange.end || selectionEnd <= maskableRange.start) {
+      // If selection is entirely in the domain part, don't allow it
+      if (selectionStart >= maskableRange.end && selectionEnd > maskableRange.end) {
         setShowMaskButton(false);
         setCurrentSelection(null);
         setHasActiveSelection(false);
+        // Clear the selection visually
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
         return;
       }
+      // Restrict selection to maskable range (name part only)
       selectionStart = Math.max(selectionStart, maskableRange.start);
       selectionEnd = Math.min(selectionEnd, maskableRange.end);
+      
+      // If selection was adjusted, update the actual selection range
+      if (selectionStart !== rangeToStart.toString().length || selectionEnd !== rangeToEnd.toString().length) {
+        // Try to adjust the selection to only include the name part
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          // This is tricky - we'd need to find the text nodes and adjust
+          // For now, just clear selection if it includes domain
+          if (rangeToEnd.toString().length > maskableRange.end) {
+            sel.removeAllRanges();
+            setShowMaskButton(false);
+            setCurrentSelection(null);
+            setHasActiveSelection(false);
+            return;
+          }
+        }
+      }
     }
 
     if (selectionStart === selectionEnd) {
@@ -317,7 +395,7 @@ export default function EmailField({
       maskState: maskStateForSelection,
     });
     setShowMaskButton(true);
-  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange]);
+  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange, disableSelectionMasking]);
 
   const handleMaskSelection = useCallback(() => {
     if (!currentSelection || !onMaskBitsChange) return;
@@ -341,11 +419,18 @@ export default function EmailField({
     for (let i = boundedStart; i < boundedEnd; i++) {
       newBits[i] = 1;
     }
+    
+    // Ensure domain part is always 0 for restrictToNameOnly fields
+    if (restrictToNameOnly && maskableRange.end < value.length) {
+      for (let i = maskableRange.end; i < value.length; i++) {
+        newBits[i] = 0;
+      }
+    }
 
     onMaskBitsChange(newBits);
     setShowMaskButton(false);
     setCurrentSelection(null);
-  }, [currentSelection, value.length, localMaskBits, onMaskBitsChange, restrictToNameOnly, maskableRange.start, maskableRange.end]);
+  }, [currentSelection, value.length, localMaskBits, onMaskBitsChange, restrictToNameOnly, maskableRange.start, maskableRange.end, maskableRange.end, value.length]);
 
   const handleUnmaskSelection = useCallback(() => {
     if (!currentSelection || !onMaskBitsChange) return;
@@ -369,11 +454,18 @@ export default function EmailField({
     for (let i = boundedStart; i < boundedEnd; i++) {
       newBits[i] = 0;
     }
+    
+    // Ensure domain part is always 0 for restrictToNameOnly fields
+    if (restrictToNameOnly && maskableRange.end < value.length) {
+      for (let i = maskableRange.end; i < value.length; i++) {
+        newBits[i] = 0;
+      }
+    }
 
     onMaskBitsChange(newBits);
     setShowMaskButton(false);
     setCurrentSelection(null);
-  }, [currentSelection, value.length, localMaskBits, onMaskBitsChange, restrictToNameOnly, maskableRange.start, maskableRange.end]);
+  }, [currentSelection, value.length, localMaskBits, onMaskBitsChange, restrictToNameOnly, maskableRange.start, maskableRange.end, maskableRange.end, value.length]);
 
   return (
     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-1 relative">

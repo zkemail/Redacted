@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 interface StepItemProps {
   title: string;
   steps: string[];
@@ -12,8 +10,16 @@ export default function StepItem({ title, steps, isActive = false }: StepItemPro
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-[18px] items-center">
-        <div className="w-3 h-3 rounded-full bg-white" />
-        <span className="text-white text-base font-medium">
+        <div
+          className={`w-3 h-3 rounded-full ${
+            isActive ? "bg-white" : "bg-[#374151]"
+          }`}
+        />
+        <span
+          className={`text-base font-medium ${
+            isActive ? "text-white" : "text-[#9ca3af]"
+          }`}
+        >
           {title}
         </span>
       </div>

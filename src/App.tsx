@@ -5,8 +5,12 @@ import Header from "./components/AppHeader";
 import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
+import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail } from "./utils/emlParser";
 import { handleGenerateProof } from "./lib";
+import { uploadEmlToGCS, generateUuid } from "./utils/gcsUpload";
+import { createVerificationUrl } from "./utils/urlEncoder";
+import type { ProofData } from "@aztec/bb.js";
 
 interface EmailState {
   from: string;
@@ -30,6 +34,7 @@ export default function MainApp() {
     bodyText: "",
     bodyHtml: undefined,
   });
+  const [parsedEmail, setParsedEmail] = useState<ParsedEmail | null>(null);
   const [headerMask, setHeaderMask] = useState<number[]>([]);
   const [bodyMask, setBodyMask] = useState<number[]>([]);
 
@@ -41,6 +46,7 @@ export default function MainApp() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [isGeneratingProof, setIsGeneratingProof] = useState(false);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -53,6 +59,7 @@ export default function MainApp() {
   };
 
   const handleEmailParsed = (parsedEmail: ParsedEmail, originalEml: string) => {
+    setParsedEmail(parsedEmail);
     setEmail({
       from: parsedEmail.from || "Unknown",
       to: parsedEmail.to || "Unknown",
@@ -100,9 +107,39 @@ export default function MainApp() {
     if (!email.originalEml) return;
     
     setIsGeneratingProof(true);
+    setVerificationUrl(null);
     try {
-      console.log("email.bodyText", email, headerMask, bodyMask);
-      await handleGenerateProof(email.originalEml, headerMask, bodyMask);
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask) as ProofData | undefined;
+      
+      // Proof generated successfully
+      if (!proof) {
+        throw new Error("Proof generation failed");
+      }
+      
+      // Upload EML file and proof to Google Cloud Storage after proof is generated
+      if (proof) {
+        try {
+          // Step 1: Generate a UUID for this email/proof pair
+          const uuid = await generateUuid();
+          
+          // Step 2: Upload EML file to GCS using the UUID
+          await uploadEmlToGCS(email.originalEml, uuid);
+          
+          // Step 3: Generate shareable verification URL (stores proof on server, returns short URL)
+          const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
+          setVerificationUrl(shareableUrl);
+          
+          // Copy to clipboard
+          try {
+            await navigator.clipboard.writeText(shareableUrl);
+          } catch (clipboardError) {
+            console.warn("Failed to copy to clipboard:", clipboardError);
+          }
+        } catch (uploadError) {
+          console.error("Error uploading files to GCS:", uploadError);
+          // Don't fail the entire operation if upload fails
+        }
+      }
     } catch (error) {
       console.error("Error generating proof:", error);
     } finally {
@@ -120,9 +157,31 @@ export default function MainApp() {
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
-          title="Masked Mail"
-          email={email}
-          isMasked={true}
+          email={{
+            ...email,
+            ranges: parsedEmail?.ranges ? {
+              from: parsedEmail.ranges.from ? {
+                rawStart: parsedEmail.ranges.from.rawStart,
+                displayOffset: parsedEmail.ranges.from.displayOffset,
+                displayLength: parsedEmail.ranges.from.displayLength,
+              } : undefined,
+              to: parsedEmail.ranges.to ? {
+                rawStart: parsedEmail.ranges.to.rawStart,
+                displayOffset: parsedEmail.ranges.to.displayOffset,
+                displayLength: parsedEmail.ranges.to.displayLength,
+              } : undefined,
+              time: parsedEmail.ranges.time ? {
+                rawStart: parsedEmail.ranges.time.rawStart,
+                displayOffset: parsedEmail.ranges.time.displayOffset,
+                displayLength: parsedEmail.ranges.time.displayLength,
+              } : undefined,
+              subject: parsedEmail.ranges.subject ? {
+                rawStart: parsedEmail.ranges.subject.rawStart,
+                displayOffset: parsedEmail.ranges.subject.displayOffset,
+                displayLength: parsedEmail.ranges.subject.displayLength,
+              } : undefined,
+            } : undefined,
+          }}
           onToggleMask={handleToggleMask}
           resetTrigger={resetTrigger}
           maskedFields={maskedFields}
@@ -145,6 +204,12 @@ export default function MainApp() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onEmailParsed={handleEmailParsed}
+      />
+
+      <VerificationUrlModal
+        isOpen={verificationUrl !== null}
+        onClose={() => setVerificationUrl(null)}
+        verificationUrl={verificationUrl || ""}
       />
     </div>
   );

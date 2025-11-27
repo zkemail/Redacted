@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 export default function UploadSection() {
   return (
     <div className="flex flex-col items-center gap-6 md:gap-9 px-4 md:px-0">

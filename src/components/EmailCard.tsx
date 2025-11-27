@@ -7,102 +7,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from "react";
 import EmailField from "./EmailField";
 import DashedBorder from "./DashedBorder";
-
-// Component to highlight selected text using Range API
-function SelectionHighlight({
-  containerRef,
-  isActive,
-}: {
-  containerRef: RefObject<HTMLDivElement | null>;
-  isActive: boolean;
-}) {
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!isActive || !containerRef.current) {
-      return;
-    }
-
-    const updatePosition = () => {
-      if (!isActive || !containerRef.current) {
-        return;
-      }
-
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        setPosition(null);
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      const container = containerRef.current;
-      if (!container) return;
-
-      // Check if selection is within our container
-      if (!container.contains(range.commonAncestorContainer)) {
-        setPosition(null);
-        return;
-      }
-
-      const rect = range.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-
-      // Calculate position relative to container
-      const top = rect.top - containerRect.top + container.scrollTop;
-      const left = rect.left - containerRect.left;
-      const width = rect.width;
-      const height = rect.height;
-
-      setPosition({ top, left, width, height });
-    };
-
-    // Update immediately
-    updatePosition();
-
-    // Update on selection change
-    const handleSelectionChange = () => {
-      updatePosition();
-    };
-
-    // Update on scroll
-    const handleScroll = () => {
-      updatePosition();
-    };
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-    const container = containerRef.current;
-    container.addEventListener("scroll", handleScroll);
-
-    return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
-      container.removeEventListener("scroll", handleScroll);
-    };
-  }, [containerRef, isActive]);
-
-  if (!position || !isActive) return null;
-
-  return (
-    <div
-      className="absolute pointer-events-none bg-[#5e6ad2]/40 border-2 border-[#5e6ad2]/70 rounded-sm transition-all duration-200 shadow-lg"
-      style={{
-        top: `${position.top}px`,
-        left: `${position.left}px`,
-        width: `${position.width}px`,
-        height: `${position.height}px`,
-        zIndex: 1,
-      }}
-    />
-  );
-}
 
 type SelectionInfo = {
   start: number;
@@ -119,7 +26,6 @@ type MaskBitsState = {
 };
 
 interface EmailCardProps {
-  title: string;
   email: {
     from: string;
     to: string;
@@ -128,6 +34,12 @@ interface EmailCardProps {
     bodyText: string;
     bodyHtml?: string;
     originalEml?: string; // Original EML file content
+    ranges?: {
+      from?: { rawStart: number; displayOffset: number; displayLength: number };
+      to?: { rawStart: number; displayOffset: number; displayLength: number };
+      time?: { rawStart: number; displayOffset: number; displayLength: number };
+      subject?: { rawStart: number; displayOffset: number; displayLength: number };
+    };
   };
   isMasked?: boolean;
   onToggleMask?: (field: string) => void;
@@ -136,18 +48,28 @@ interface EmailCardProps {
   onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void; // Callback to update undo/redo button states
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
   onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
+  disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
+  useBlackMask?: boolean; // If true, use solid black mask instead of semi-transparent red
+  initialMaskBits?: {
+    fromMaskBits?: number[];
+    toMaskBits?: number[];
+    timeMaskBits?: number[];
+    subjectMaskBits?: number[];
+    bodyMaskBits?: number[];
+  }; // Initial mask bits to use (for verify page)
 }
 
 export default function EmailCard({
-  title,
   email,
-  isMasked = false,
   onToggleMask,
   resetTrigger,
   maskedFields = new Set(),
   onUndoRedoStateChange,
   onUndoRedoHandlersReady,
   onMaskChange,
+  disableSelectionMasking = false,
+  useBlackMask = false,
+  initialMaskBits,
 }: EmailCardProps) {
   const bodyText = email.bodyText ?? "";
 
@@ -173,12 +95,100 @@ export default function EmailCard({
     [bodyText.length]
   );
 
-  const [fromMaskBits, setFromMaskBits] = useState<number[]>(initialFromBits);
-  const [toMaskBits, setToMaskBits] = useState<number[]>(initialToBits);
-  const [timeMaskBits, setTimeMaskBits] = useState<number[]>(initialTimeBits);
-  const [subjectMaskBits, setSubjectMaskBits] =
-    useState<number[]>(initialSubjectBits);
-  const [bodyMaskBits, setBodyMaskBits] = useState<number[]>(initialBodyBits);
+  const [fromMaskBits, setFromMaskBits] = useState<number[]>(
+    initialMaskBits?.fromMaskBits && initialMaskBits.fromMaskBits.length === email.from.length
+      ? initialMaskBits.fromMaskBits
+      : initialFromBits
+  );
+  const [toMaskBits, setToMaskBits] = useState<number[]>(
+    initialMaskBits?.toMaskBits && initialMaskBits.toMaskBits.length === email.to.length
+      ? initialMaskBits.toMaskBits
+      : initialToBits
+  );
+  const [timeMaskBits, setTimeMaskBits] = useState<number[]>(
+    initialMaskBits?.timeMaskBits && initialMaskBits.timeMaskBits.length === email.time.length
+      ? initialMaskBits.timeMaskBits
+      : initialTimeBits
+  );
+  const [subjectMaskBits, setSubjectMaskBits] = useState<number[]>(
+    initialMaskBits?.subjectMaskBits && initialMaskBits.subjectMaskBits.length === email.subject.length
+      ? initialMaskBits.subjectMaskBits
+      : initialSubjectBits
+  );
+  const [bodyMaskBits, setBodyMaskBits] = useState<number[]>(
+    initialMaskBits?.bodyMaskBits && initialMaskBits.bodyMaskBits.length === bodyText.length
+      ? initialMaskBits.bodyMaskBits
+      : initialBodyBits
+  );
+
+  // Update mask bits based on maskedFields prop
+  // BUT: If initialMaskBits is provided, don't overwrite them (for verify page)
+  useEffect(() => {
+    // Skip if initialMaskBits is provided (verify page uses initialMaskBits directly)
+    if (initialMaskBits) {
+      return;
+    }
+    
+    // Update from mask bits
+    if (maskedFields.has("from")) {
+      setFromMaskBits(new Array(email.from.length).fill(1));
+    } else {
+      setFromMaskBits(new Array(email.from.length).fill(0));
+    }
+    
+    // Update to mask bits
+    if (maskedFields.has("to")) {
+      setToMaskBits(new Array(email.to.length).fill(1));
+    } else {
+      setToMaskBits(new Array(email.to.length).fill(0));
+    }
+    
+    // Update time mask bits
+    if (maskedFields.has("time")) {
+      setTimeMaskBits(new Array(email.time.length).fill(1));
+    } else {
+      setTimeMaskBits(new Array(email.time.length).fill(0));
+    }
+    
+    // Update subject mask bits
+    if (maskedFields.has("subject")) {
+      setSubjectMaskBits(new Array(email.subject.length).fill(1));
+    } else {
+      setSubjectMaskBits(new Array(email.subject.length).fill(0));
+    }
+    
+    // Update body mask bits
+    if (maskedFields.has("body")) {
+      setBodyMaskBits(new Array(bodyText.length).fill(1));
+    } else {
+      setBodyMaskBits(new Array(bodyText.length).fill(0));
+    }
+  }, [maskedFields, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length, initialMaskBits]);
+
+  // Update mask bits when initialMaskBits changes (for verify page)
+  useEffect(() => {
+    if (!initialMaskBits) return;
+    
+    if (initialMaskBits.fromMaskBits && initialMaskBits.fromMaskBits.length === email.from.length) {
+      setFromMaskBits(initialMaskBits.fromMaskBits);
+    }
+    if (initialMaskBits.toMaskBits && initialMaskBits.toMaskBits.length === email.to.length) {
+      setToMaskBits(initialMaskBits.toMaskBits);
+    }
+    if (initialMaskBits.timeMaskBits && initialMaskBits.timeMaskBits.length === email.time.length) {
+      setTimeMaskBits(initialMaskBits.timeMaskBits);
+    }
+    if (initialMaskBits.subjectMaskBits && initialMaskBits.subjectMaskBits.length === email.subject.length) {
+      setSubjectMaskBits(initialMaskBits.subjectMaskBits);
+    }
+    if (initialMaskBits.bodyMaskBits && initialMaskBits.bodyMaskBits.length === bodyText.length) {
+      setBodyMaskBits(initialMaskBits.bodyMaskBits);
+    }
+  }, [initialMaskBits, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length]);
+
+  // Debug: Log masking state
+  useEffect(() => {
+  }, [useBlackMask, maskedFields, initialMaskBits, fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, bodyMaskBits]);
 
   // History management for undo/redo
   const [history, setHistory] = useState<MaskBitsState[]>([
@@ -218,20 +228,6 @@ export default function EmailCard({
       }, 0);
     }
   }, [historyIndex, history, onUndoRedoStateChange]);
-  const [emailMask, setEmailMask] = useState<{
-    eml: string;
-    bits: number[];
-    mask: string;
-    bodyMappingPosition?: number; // Where body bits were mapped in EML
-  } | null>(null);
-  const [bodyMaskInfo, setBodyMaskInfo] = useState<{
-    startPosition: number;
-    bits: number[];
-    sum: number;
-    length: number;
-    note?: string; // Explanation of what this represents
-  } | null>(null);
-  const [bodyMappingPosition, setBodyMappingPosition] = useState<number>(-1);
 
   // Reset mask bits when email content changes - use key prop in parent to trigger remount
   const emailKey = `${email.from}-${email.to}-${email.time}-${
@@ -257,7 +253,6 @@ export default function EmailCard({
         setTimeMaskBits(resetState.timeMaskBits);
         setSubjectMaskBits(resetState.subjectMaskBits);
         setBodyMaskBits(resetState.bodyMaskBits);
-        setEmailMask(null);
         // Reset history for new email
         setHistory([resetState]);
         setHistoryIndex(0);
@@ -528,7 +523,6 @@ export default function EmailCard({
         setTimeMaskBits(resetState.timeMaskBits);
         setSubjectMaskBits(resetState.subjectMaskBits);
         setBodyMaskBits(resetState.bodyMaskBits);
-        setEmailMask(null);
         // Clear any active selections
         const sel = window.getSelection();
         if (sel) sel.removeAllRanges();
@@ -587,7 +581,14 @@ export default function EmailCard({
         const segment = text.slice(index, end);
         const escapedSegment = escapeHtml(segment);
         if (currentMask === 1) {
+          if (useBlackMask) {
+            // Solid black mask - completely hides the text
+            // Use inline styles to ensure the black background is applied
+            result += `<span style="background-color: #000000; color: #000000; display: inline;">${escapedSegment}</span>`;
+          } else {
+            // Semi-transparent red mask with line-through (original style)
           result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80">${escapedSegment}</span>`;
+          }
         } else {
           result += escapedSegment;
         }
@@ -596,7 +597,7 @@ export default function EmailCard({
 
       return result;
     },
-    [escapeHtml]
+    [escapeHtml, useBlackMask]
   );
 
   const scopeHtmlContent = useCallback(
@@ -788,8 +789,6 @@ export default function EmailCard({
           }
         }
 
-        const expandedSum = expandedBits.reduce((a, b) => a + b, 0);
-
         // Collect all text nodes first to avoid issues with modifying DOM while walking
         const textNodes: Text[] = [];
         const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
@@ -837,8 +836,13 @@ export default function EmailCard({
               const segmentText = nodeText.slice(localIndex, segmentEnd);
               if (currentMask === 1) {
                 const span = doc.createElement("span");
-                span.className =
-                  "line-through decoration-black bg-[#FD878950] decoration-1 opacity-80";
+                if (useBlackMask) {
+                  span.style.backgroundColor = "#000000";
+                  span.style.color = "#000000";
+                  span.style.display = "inline";
+                } else {
+                  span.className = "line-through decoration-black bg-[#FD878950] decoration-1 opacity-80";
+                }
                 span.textContent = segmentText;
                 fragments.push(span);
                 spansCreated++;
@@ -872,7 +876,7 @@ export default function EmailCard({
         return html;
       }
     },
-    [bodyText, createMaskedHtmlFromPlainText, scopeHtmlContent]
+    [bodyText, createMaskedHtmlFromPlainText, scopeHtmlContent, useBlackMask]
   );
 
 
@@ -888,8 +892,6 @@ export default function EmailCard({
       ? bodyMaskBits 
       : new Array(bodyText.length).fill(0);
     
-    const bitsSum = bits.reduce((a, b) => a + b, 0);
-    
     if (email.bodyHtml) {
       return createMaskedHtmlFromHtml(email.bodyHtml, bits);
     }
@@ -900,6 +902,7 @@ export default function EmailCard({
     bodyMaskBitsKey, // Use the string key instead of the array
     createMaskedHtmlFromPlainText,
     createMaskedHtmlFromHtml,
+    useBlackMask,
   ]);
 
   // Helper function to clear selection state
@@ -912,6 +915,10 @@ export default function EmailCard({
   }, []);
 
   const handleMouseUpOnBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // If selection masking is disabled, don't show mask buttons
+    if (disableSelectionMasking) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const container = bodyContainerRef.current;
@@ -1000,7 +1007,7 @@ export default function EmailCard({
       maskState: maskStateForSelection,
     });
     setShowMaskButton(true);
-  }, [bodyText, bodyMaskBits, clearSelectionState]);
+  }, [bodyText, bodyMaskBits, clearSelectionState, disableSelectionMasking]);
 
   // Helper function to restore selection from text offsets
   const restoreSelectionFromOffsets = useCallback((start: number, end: number) => {
@@ -1069,7 +1076,10 @@ export default function EmailCard({
 
   // Restore selection after DOM update when showMaskButton becomes true
   useLayoutEffect(() => {
-    if (!showMaskButton || !savedSelectionRangeRef.current || !savedSelectionOffsetsRef.current) {
+    const savedRange = savedSelectionRangeRef.current;
+    const offsets = savedSelectionOffsetsRef.current;
+
+    if (!showMaskButton || !savedRange || !offsets) {
       return;
     }
 
@@ -1080,41 +1090,31 @@ export default function EmailCard({
 
     // Use requestAnimationFrame to ensure DOM is fully updated
     requestAnimationFrame(() => {
-      // Try to restore the saved Range first
-      try {
-        const savedRange = savedSelectionRangeRef.current;
-        const selection = window.getSelection();
-        if (selection) {
-          // Check if the Range nodes are still valid (not detached)
-          try {
-            // Test if we can access the range properties without error
-            const test = savedRange.startContainer;
-            const isInContainer = test && container.contains(test);
+      const selection = window.getSelection();
+      if (selection) {
+        try {
+          const isStartInContainer =
+            !!savedRange.startContainer &&
+            container.contains(savedRange.startContainer);
+          const isEndInContainer =
+            !!savedRange.endContainer &&
+            container.contains(savedRange.endContainer);
+          const isTextNode =
+            savedRange.startContainer?.nodeType === Node.TEXT_NODE &&
+            savedRange.endContainer?.nodeType === Node.TEXT_NODE;
 
-            // Check if Range points to text nodes (nodeType 3) or if it's pointing to elements
-            const isTextNode = savedRange.startContainer.nodeType === Node.TEXT_NODE;
-            const isEndTextNode = savedRange.endContainer.nodeType === Node.TEXT_NODE;
-            
-            if (isInContainer && isTextNode && isEndTextNode) {
-              selection.removeAllRanges();
-              selection.addRange(savedRange);
-              
-              const restoredText = savedRange.toString();
-              // Only consider it successful if we actually restored text content
-              if (restoredText.length > 0) {
-                return; // Successfully restored from saved Range
-              }
+          if (isStartInContainer && isEndInContainer && isTextNode) {
+            selection.removeAllRanges();
+            selection.addRange(savedRange);
+            if (savedRange.toString().length > 0) {
+              return;
             }
-          } catch (e) {
-            // Range nodes are stale, fall through to restore from offsets
           }
+        } catch {
+          // Fall through to offset-based restoration
         }
-      } catch (e) {
-        // Range is invalid, fall through to restore from offsets
       }
 
-      // If Range restoration failed, restore from text offsets
-      const offsets = savedSelectionOffsetsRef.current;
       restoreSelectionFromOffsets(offsets.start, offsets.end);
     });
   }, [showMaskButton, restoreSelectionFromOffsets]);
@@ -1263,40 +1263,176 @@ export default function EmailCard({
     const bits = new Array(originalEml.length).fill(0);
 
     // Helper to find and map field value in original EML
+    // IMPORTANT: This function maps mask bits to the raw EML positions
+    // For From and To fields, it searches for the email within angle brackets <email@example.com>
+    // For other fields, it uses the header line pattern
     const mapFieldToOriginal = (fieldValue: string, fieldBits: number[], fieldName: string) => {
       if (!fieldValue || fieldBits.length === 0) {
         return;
       }
 
-      // Escape special regex characters in field value
-      const escapedValue = fieldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // Find all occurrences of the field value in the original EML
-      const regex = new RegExp(escapedValue, "g");
-      const matches = [...originalEml.matchAll(regex)];
+      // Find where the body starts (header separator)
+      const bodySeparator = originalEml.indexOf('\r\n\r\n');
+      const bodyStart = bodySeparator >= 0 ? bodySeparator : originalEml.indexOf('\n\n');
+      const headersSection = bodyStart >= 0 ? originalEml.slice(0, bodyStart) : originalEml;
 
+      // Map field name to header name (e.g., "time" -> "Date")
+      let headerFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+      if (fieldName === 'time') {
+        headerFieldName = 'Date';
+      }
 
-      for (const match of matches) {
-        const start = match.index!;
-        if (
-          start !== undefined &&
-          start + fieldValue.length <= originalEml.length
-        ) {
-          // Map the mask bits to this occurrence
-          let bitsMapped = 0;
-          for (
-            let i = 0;
-            i < Math.min(fieldBits.length, fieldValue.length);
-            i++
-          ) {
-            if (start + i < bits.length) {
-              const oldBit = bits[start + i];
-              bits[start + i] = fieldBits[i] || 0;
-              if (fieldBits[i] === 1) bitsMapped++;
+      let actualValueStart = -1;
+      let found = false;
+
+      // Special handling for From and To fields (email addresses)
+      if (fieldName === 'from' || fieldName === 'to') {
+        // If we have ranges information, use it for exact positioning
+        const rangeKey = fieldName as 'from' | 'to';
+        if (email.ranges && email.ranges[rangeKey]) {
+          const range = email.ranges[rangeKey];
+          // rawStart is position after colon, displayOffset accounts for leading whitespace
+          // The actual field value starts at rawStart + displayOffset
+          actualValueStart = range.rawStart + range.displayOffset;
+          found = true;
+          console.log(`🔍 [MAP FIELD] ${fieldName} using ranges:`, {
+            rawStart: range.rawStart,
+            displayOffset: range.displayOffset,
+            actualValueStart,
+            fieldValue,
+            fieldBitsLength: fieldBits.length,
+          });
+        } else {
+          // Fallback: search for the header line
+          const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
+          const headerLineMatch = headerLinePattern.exec(headersSection);
+          
+          if (headerLineMatch) {
+            const lineStart = headerLineMatch.index;
+            const line = headerLineMatch[0];
+            const colonIndex = line.indexOf(':');
+            
+            if (colonIndex >= 0) {
+              // Get everything after the colon
+              const valueSection = line.slice(colonIndex + 1);
+              
+              // Look for angle brackets first - emails are often in <email@example.com> format
+              const angleBracketStart = valueSection.indexOf('<');
+              const angleBracketEnd = angleBracketStart >= 0 ? valueSection.indexOf('>', angleBracketStart) : -1;
+              
+              if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
+                // There are angle brackets, check if email is inside
+                const contentInsideBrackets = valueSection.slice(angleBracketStart + 1, angleBracketEnd);
+                const emailIndexInBrackets = contentInsideBrackets.indexOf(fieldValue);
+                
+                if (emailIndexInBrackets >= 0) {
+                  // Email is inside brackets - position is after the <
+                  actualValueStart = lineStart + colonIndex + 1 + angleBracketStart + 1 + emailIndexInBrackets;
+                  found = true;
+                  console.log(`🔍 [MAP FIELD] ${fieldName} found inside angle brackets (fallback):`, {
+                    line: line.substring(0, 100),
+                    angleBracketStart,
+                    emailIndexInBrackets,
+                    actualValueStart,
+                    fieldValue,
+                    fieldBitsLength: fieldBits.length,
+                  });
+                } else {
+                  // Email not found inside brackets, try direct search
+                  const emailIndex = valueSection.indexOf(fieldValue);
+                  if (emailIndex >= 0) {
+                    actualValueStart = lineStart + colonIndex + 1 + emailIndex;
+                    found = true;
+                  }
+                }
+              } else {
+                // No angle brackets, look for the email directly in the value section
+                const emailIndex = valueSection.indexOf(fieldValue);
+                if (emailIndex >= 0) {
+                  // Skip leading whitespace
+                  const leadingWhitespaceMatch = valueSection.slice(0, emailIndex).match(/\s*$/);
+                  const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
+                  actualValueStart = lineStart + colonIndex + 1 + emailIndex - leadingWhitespace;
+                  found = true;
+                }
+              }
             }
           }
-          if (bitsMapped > 0) {
+        }
+      } else {
+        // For other fields (time, subject), use the header line pattern approach
+        // Escape special regex characters in field value
+        const escapedValue = fieldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        
+        // Search for header line: "HeaderName: value" (allowing for whitespace)
+        const headerPattern = new RegExp(
+          `^${headerFieldName}\\s*:\\s*${escapedValue}`,
+          'im'
+        );
+        const headerMatch = headerPattern.exec(headersSection);
+
+        if (headerMatch) {
+          // Find the colon to get the start of the value
+          const lineStart = headerMatch.index;
+          const line = headerMatch[0];
+          const colonIndex = line.indexOf(':');
+          if (colonIndex >= 0) {
+            // Get the value part (after colon and any whitespace)
+            const valueStartInLine = colonIndex + 1;
+            // Skip leading whitespace
+            const leadingWhitespaceMatch = line.slice(valueStartInLine).match(/^\s*/);
+            const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
+            actualValueStart = lineStart + colonIndex + 1 + leadingWhitespace;
+            found = true;
+          }
+        } else {
+          // Fallback: search for header line and then find value within it
+          const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
+          const headerLineMatch = headerLinePattern.exec(headersSection);
+          
+          if (headerLineMatch) {
+            const lineStart = headerLineMatch.index;
+            const line = headerLineMatch[0];
+            const colonIndex = line.indexOf(':');
+            if (colonIndex >= 0) {
+              // Get everything after the colon
+              const valueSection = line.slice(colonIndex + 1);
+              // Find the field value within this section
+              const valueIndex = valueSection.indexOf(fieldValue);
+              if (valueIndex >= 0) {
+                // Skip leading whitespace before the value
+                const leadingWhitespaceMatch = valueSection.slice(0, valueIndex).match(/\s*$/);
+                const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
+                actualValueStart = lineStart + colonIndex + 1 + valueIndex - leadingWhitespace;
+                found = true;
+              }
+            }
           }
         }
+      }
+
+      // Map the mask bits to the found position
+      if (found && actualValueStart >= 0) {
+        let bitsMapped = 0;
+        const minLength = Math.min(fieldBits.length, fieldValue.length);
+        for (let i = 0; i < minLength; i++) {
+          if (actualValueStart + i < bits.length && actualValueStart + i >= 0) {
+            bits[actualValueStart + i] = fieldBits[i] || 0;
+            if (fieldBits[i] === 1) bitsMapped++;
+          }
+        }
+        if (fieldName === 'from' || fieldName === 'to') {
+          console.log(`🔍 [MAP FIELD] ${fieldName} mapped:`, {
+            actualValueStart,
+            bitsMapped,
+            expectedBits: fieldBits.filter(b => b === 1).length,
+            fieldValueLength: fieldValue.length,
+            fieldBitsLength: fieldBits.length,
+            minLength,
+          });
+        }
+      } else if (fieldName === 'from' || fieldName === 'to') {
+        console.warn(`🔍 [MAP FIELD] ${fieldName} NOT MAPPED - not found or invalid position`);
       }
     };
 
@@ -1364,13 +1500,11 @@ export default function EmailCard({
     }
     
     // 3. If still not found, try to find body content by looking for common email body markers
-    let fallbackBodyStart = -1;
     if (!bodyMapped && bodyMaskBits.length > 0) {
       // Look for common patterns that indicate the start of email body
       // Try to find "\r\n\r\n" or "\n\n" which often separates headers from body
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
-      fallbackBodyStart = bodyStart;
       
       if (bodyStart > 0 && bodyStart < originalEml.length) {
         // Try to map bodyMaskBits starting from bodyStart position
@@ -1390,10 +1524,6 @@ export default function EmailCard({
     }
     
     // Store the body mapping position for later extraction
-    const bodyMappingPosition = fallbackBodyStart >= 0 ? fallbackBodyStart : -1;
-    
-    const totalBitsSet = bits.reduce((a, b) => a + b, 0);
-
     return {
       eml: originalEml,
       bits,
@@ -1454,42 +1584,6 @@ export default function EmailCard({
     onMaskChange,
   ]);
 
-  // Update emailMask state whenever aggregatedMask changes
-  useEffect(() => {
-    setEmailMask(aggregatedMask);
-  }, [aggregatedMask]);
-
-  // Extract and store body mask bits from emailMask for the ENTIRE body section in EML
-  useEffect(() => {
-    if (!emailMask || !email.originalEml) {
-      setBodyMaskInfo(null);
-      return;
-    }
-    
-    // Find where the body starts in the EML
-    const bodySeparator = email.originalEml.indexOf('\r\n\r\n');
-    const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : email.originalEml.indexOf('\n\n') + 2;
-    
-    if (bodyStart > 0 && bodyStart < emailMask.bits.length) {
-      // Extract bits for the ENTIRE body section (from bodyStart to end of EML)
-      // This represents all mask bits for the body in the original EML file
-      const bodyEnd = emailMask.bits.length;
-      const bodyBits = emailMask.bits.slice(bodyStart, bodyEnd);
-      const bodyBitsSum = bodyBits.reduce((a, b) => a + b, 0);
-      
-      setBodyMaskInfo({
-        startPosition: bodyStart,
-        bits: bodyBits,
-        sum: bodyBitsSum,
-        length: bodyBits.length,
-        note: `Body mask bits for entire EML body section (${bodyBits.length} chars, from position ${bodyStart} to ${bodyEnd})`
-      });
-    } else {
-      setBodyMaskInfo(null);
-    }
-  }, [emailMask, email.originalEml]);
-
-
   return (
     <div className="bg-[#EAEAEA] p-4 md:p-6 h-[calc(100vh-48px-64px)] md:h-[calc(100vh-104px)] overflow-auto">
       <div className="flex flex-col gap-4 md:gap-3">
@@ -1501,6 +1595,8 @@ export default function EmailCard({
           maskBits={fromMaskBits}
           onMaskBitsChange={setFromMaskBitsWithHistory}
           restrictToNameOnly={true}
+          disableSelectionMasking={disableSelectionMasking}
+          useBlackMask={useBlackMask}
         />
 
         <DashedBorder />
@@ -1512,6 +1608,8 @@ export default function EmailCard({
           onToggleMask={onToggleMask ? () => onToggleMask("to") : undefined}
           maskBits={toMaskBits}
           onMaskBitsChange={setToMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
+          useBlackMask={useBlackMask}
         />
 
         <DashedBorder />
@@ -1523,6 +1621,8 @@ export default function EmailCard({
           onToggleMask={onToggleMask ? () => onToggleMask("time") : undefined}
           maskBits={timeMaskBits}
           onMaskBitsChange={setTimeMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
+          useBlackMask={useBlackMask}
         />
 
         <DashedBorder />
@@ -1536,6 +1636,8 @@ export default function EmailCard({
           }
           maskBits={subjectMaskBits}
           onMaskBitsChange={setSubjectMaskBitsWithHistory}
+          disableSelectionMasking={disableSelectionMasking}
+          useBlackMask={useBlackMask}
         />
 
         <DashedBorder />
