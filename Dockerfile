@@ -4,6 +4,10 @@ FROM node:20-alpine AS builder
 # Install git (required by some npm packages)
 RUN apk add --no-cache git
 
+# Configure git to use HTTPS instead of SSH for GitHub URLs
+# This avoids SSH key requirements in Docker builds
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
 # Set working directory
 WORKDIR /app
 
@@ -38,6 +42,10 @@ FROM node:20-alpine AS production
 
 # Install git (required by some npm packages)
 RUN apk add --no-cache git
+
+# Configure git to use HTTPS instead of SSH for GitHub URLs
+# This avoids SSH key requirements in Docker builds
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Set working directory
 WORKDIR /app
