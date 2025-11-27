@@ -1,6 +1,5 @@
 "use client";
 
-import MagicWand from "../assets/MagicWand.svg";
 import FileDownloadIcon from "../assets/FileDownloadIcon.svg";
 import ArrowBendUpLeft from "../assets/ArrowBendUpLeft.svg";
 import ArrowBendUpRight from "../assets/ArrowBendUpRight.svg";
@@ -32,7 +31,7 @@ export default function ActionBar({
     <div className="fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max">
       <div className="bg-[#F5F3EF] rounded-2xl px-4 md:px-4 py-3 md:py-3 shadow-[0px_4px_8px_0px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-4 md:gap-4 flex-wrap justify-center">
-          {!showVerifyProof && (
+          {/* {!showVerifyProof && (
             <>
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5">
@@ -45,7 +44,7 @@ export default function ActionBar({
 
               <div className="w-px h-6 bg-[#D4D4D4]" />
             </>
-          )}
+          )} */}
 
           {showVerifyProof ? (
             <div 

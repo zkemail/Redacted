@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Header from "./components/AppHeader";
 import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
@@ -146,6 +146,10 @@ export default function MainApp() {
       setIsGeneratingProof(false);
     }
   };
+
+  useEffect(() => {
+    setIsUploadModalOpen(true)
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">

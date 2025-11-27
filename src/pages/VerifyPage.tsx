@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { handleVerifyProof } from "../lib";
 import { fetchProofData } from "../utils/urlEncoder";
 import { parseEmlFile } from "../utils/emlParser";
@@ -11,6 +11,7 @@ import ActionBar from "../components/ActionBar";
 import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
 
 export default function VerifyPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState<ParsedEmail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -159,10 +160,13 @@ export default function VerifyPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
+      <div className="min-h-screen w-full bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
         {/* Simplified Header - no buttons */}
         <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
-          <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+          <div 
+            className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center cursor-pointer"
+            onClick={() => navigate("/")}
+          >
             <img
               src={WhistleblowerLogo}
               height={16}
@@ -173,7 +177,10 @@ export default function VerifyPage() {
         </div>
         <div className="hidden md:block">
           <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
-            <div>
+            <div 
+              className="cursor-pointer"
+              onClick={() => navigate("/")}
+            >
               <img
                 src={WhistleblowerLogo}
                 height={16}
@@ -207,7 +214,10 @@ export default function VerifyPage() {
       <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
         {/* Simplified Header - no buttons */}
         <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
-          <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+          <div 
+            className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center cursor-pointer"
+            onClick={() => navigate("/")}
+          >
             <img
               src={WhistleblowerLogo}
               height={16}
@@ -218,7 +228,10 @@ export default function VerifyPage() {
         </div>
         <div className="hidden md:block">
           <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
-            <div>
+            <div 
+              className="cursor-pointer"
+              onClick={() => navigate("/")}
+            >
               <img
                 src={WhistleblowerLogo}
                 height={16}
@@ -398,7 +411,10 @@ export default function VerifyPage() {
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
       {/* Simplified Header - no buttons */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
-        <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+        <div 
+          className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center cursor-pointer"
+          onClick={() => navigate("/")}
+        >
           <img
             src={WhistleblowerLogo}
             height={16}
@@ -409,7 +425,10 @@ export default function VerifyPage() {
       </div>
       <div className="hidden md:block">
         <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
-          <div>
+          <div 
+            className="cursor-pointer"
+            onClick={() => navigate("/")}
+          >
             <img
               src={WhistleblowerLogo}
               height={16}
@@ -423,7 +442,7 @@ export default function VerifyPage() {
       </div>
 
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
-        <div className="max-w-4xl mx-auto">
+        <div className="w-full">
           {/* Verification Status Banner */}
           {verificationStatus && (
             <div

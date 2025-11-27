@@ -91,7 +91,7 @@ export default function Home() {
             </div>
             <div className="flex justify-center items-center gap-4">
               <Link
-                to="/app"
+                to="/generate-proof"
                 className="px-4 py-2 bg-darker text-white sm:text-base text-xs"
               >
                 Prove an Email

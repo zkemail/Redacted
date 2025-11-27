@@ -16,7 +16,7 @@ const router = createBrowserRouter([
     element: <Home />,
   },
   {
-    path: "/app",
+    path: "/generate-proof",
     element: <MainApp />,
   },
   {

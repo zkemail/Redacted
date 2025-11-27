@@ -10,7 +10,7 @@ const HomeHeader = () => {
                 </div>
                 <div className='flex flex-row gap-2 sm:gap-4 justify-center items-center'>
                     <a
-                        href="/app"
+                        href="/generate-proof"
                         className="bg-black text-white px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-base"
                     >
                         Prove an email

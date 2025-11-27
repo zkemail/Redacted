@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
 import HelpIcon from "../assets/HelpIcon.svg";
 import CloseIcon from "../assets/CloseIcon.svg";
@@ -13,6 +14,7 @@ export default function Header({
   onChangeEmail: () => void;
   onResetChanges?: () => void;
 }) {
+  const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +61,10 @@ export default function Header({
     <div>
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
-        <div className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center">
+        <div 
+          className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center cursor-pointer"
+          onClick={() => navigate("/")}
+        >
           <img
             src={WhistleblowerLogo}
             height={16}
@@ -121,7 +126,10 @@ export default function Header({
       {/* Desktop Header */}
       <div className="hidden md:block">
         <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
-          <div>
+          <div 
+            className="cursor-pointer"
+            onClick={() => navigate("/")}
+          >
             <img
               src={WhistleblowerLogo}
               height={16}
@@ -129,8 +137,8 @@ export default function Header({
               alt="Whistleblow Logo"
             />
           </div>
-          <div className="w-px h-6 bg-[#D4D4D4]" />
-          <div className="text-[#111314]">Verify</div>
+          {/* <div className="w-px h-6 bg-[#D4D4D4]" />
+          <div className="text-[#111314]">Verify</div> */}
         </div>
         <div className="bg-[#EAEAEA] fixed top-6 right-6 z-50 flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
           <div
