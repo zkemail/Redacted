@@ -91,7 +91,7 @@ export default function Home() {
             </div>
             <div className="flex justify-center items-center gap-4">
               <Link
-                to="/app"
+                to="/verify"
                 className="px-4 py-2 bg-light sm:text-base text-xs"
               >
                 Verify

@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
 import MainApp from './App.tsx'
 import Home from './pages/Home.tsx'
+import VerifyPage from './pages/VerifyPage.tsx'
 
 const router = createBrowserRouter([
   {
@@ -18,6 +19,10 @@ const router = createBrowserRouter([
     path: "/app",
     element: <MainApp />,
   },
+  {
+    path: "/verify",
+    element: <VerifyPage />,
+  }
 ])
 
 createRoot(document.getElementById('root')!).render(

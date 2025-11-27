@@ -10,7 +10,7 @@ const HomeHeader = () => {
                 </div>
                 <div className='flex flex-row gap-2 sm:gap-4 justify-center items-center'>
                     <a
-                        href="/app"
+                        href="/verify"
                         className="text-xs sm:text-base"
                     >
                         Verify
