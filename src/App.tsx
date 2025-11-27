@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import Header from "./components/Header";
+import Header from "./components/AppHeader";
 import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
@@ -22,7 +22,7 @@ interface EmailState {
   originalEml?: string; // Store original EML file content
 }
 
-export default function Home() {
+export default function MainApp() {
   const [maskedFields, setMaskedFields] = useState<Set<string>>(new Set());
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [resetTrigger, setResetTrigger] = useState(0);
