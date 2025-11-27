@@ -67,9 +67,19 @@ const storageConfig = {
 // Use credentials from environment variable if provided, otherwise use key file
 if (process.env.GCS_CREDENTIALS) {
   try {
-    storageConfig.credentials = JSON.parse(process.env.GCS_CREDENTIALS);
+    const credsValue = process.env.GCS_CREDENTIALS.trim();
+    if (credsValue.startsWith('{')) {
+      storageConfig.credentials = JSON.parse(credsValue);
+    } else {
+      console.log('GCS_CREDENTIALS looks like a file path, attempting to read:', credsValue);
+      const credentialPath = credsValue.startsWith('/')
+        ? credsValue
+        : join(__dirname, credsValue);
+      const fileContents = readFileSync(credentialPath, 'utf-8');
+      storageConfig.credentials = JSON.parse(fileContents);
+    }
   } catch (error) {
-    console.error('Error parsing GCS_CREDENTIALS:', error);
+    console.error('Error loading GCS_CREDENTIALS:', error);
     process.exit(1);
   }
 } else if (process.env.GCS_KEY_FILE) {
