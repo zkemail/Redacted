@@ -53,16 +53,17 @@ interface ProofDataWithMetadata extends ProofData {
 }
 
 /**
- * Select the appropriate circuit based on header and body mask lengths
+ * Select the appropriate circuit based on body mask length only
  * 
- * @param headerMaskLength - Length of the header mask array
+ * @param headerMaskLength - Length of the header mask array (for logging only)
  * @param bodyMaskLength - Length of the body mask array
- * @returns The circuit configuration that can accommodate both sizes
+ * @returns The circuit configuration that can accommodate the body size
  */
 function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
-  // Find the smallest circuit that can accommodate both header and body
+  // Find the smallest circuit that can accommodate the body mask length
+  // Header mask length is not considered in the selection
   for (const config of CIRCUIT_CONFIGS) {
-    if (headerMaskLength <= config.maxHeaderLength && bodyMaskLength <= config.maxBodyLength) {
+    if (bodyMaskLength <= config.maxBodyLength) {
       console.log(`📦 [CIRCUIT] Selected ${config.name} (header: ${headerMaskLength}/${config.maxHeaderLength}, body: ${bodyMaskLength}/${config.maxBodyLength})`);
       return config;
     }
@@ -70,7 +71,7 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
   
   // If no circuit can accommodate, use the largest one and log a warning
   const largest = CIRCUIT_CONFIGS[CIRCUIT_CONFIGS.length - 1];
-  console.warn(`⚠️ [CIRCUIT] Mask sizes (header: ${headerMaskLength}, body: ${bodyMaskLength}) exceed all circuit limits. Using largest circuit: ${largest.name}`);
+  console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits. Using largest circuit: ${largest.name}`);
   return largest;
 }
 
@@ -95,6 +96,11 @@ export const handleGenerateProof = async (
   bodyMask: number[]
 ) => {
   try {
+
+    console.log("headerMask", headerMask);
+    console.log("bodyMask", bodyMask);
+    console.log("headerMask.length", headerMask.length);
+    console.log("bodyMask.length", bodyMask.length);
     // Select circuit based on actual mask lengths (before padding)
     const circuitConfig = selectCircuit(headerMask.length, bodyMask.length);
     const selectedCircuit = circuitConfig.circuit;
