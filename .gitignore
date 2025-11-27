@@ -24,6 +24,7 @@ server/.env
 !package-lock.json
 !tsconfig*.json
 !eslint.config.js
+!src/circuit/target/*.json
 service-account*.json
 *-key.json
 

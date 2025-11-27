@@ -8,11 +8,71 @@ import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 // import circuit from "./circuit/target/circuit.json";
 import { generateEmailVerifierInputs } from "@zk-email/zkemail-nr";
 import circuitEmailMaskJson from "./circuit/target/email_mask.json";
+import circuitEmailMaskMidJson from "./circuit/target/email_mask_mid.json";
+import circuitEmailMaskLargeJson from "./circuit/target/email_mask_large.json";
+import circuitEmailMaskXLargeJson from "./circuit/target/email_mask_xlarge.json";
 
-const circuitEmailMask = circuitEmailMaskJson as CompiledCircuit;
+// Circuit configurations
+const CIRCUIT_CONFIGS = [
+  {
+    name: "email_mask",
+    circuit: circuitEmailMaskJson as CompiledCircuit,
+    maxHeaderLength: 512,
+    maxBodyLength: 1024,
+  },
+  {
+    name: "email_mask_mid",
+    circuit: circuitEmailMaskMidJson as CompiledCircuit,
+    maxHeaderLength: 1024,
+    maxBodyLength: 2048,
+  },
+  {
+    name: "email_mask_large",
+    circuit: circuitEmailMaskLargeJson as CompiledCircuit,
+    maxHeaderLength: 2048,
+    maxBodyLength: 4096,
+  },
+  {
+    name: "email_mask_xlarge",
+    circuit: circuitEmailMaskXLargeJson as CompiledCircuit,
+    maxHeaderLength: 4096,
+    maxBodyLength: 8192,
+  },
+] as const;
 
 // Initialize WASM modules
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
+
+/**
+ * Extended ProofData type that includes circuit metadata
+ */
+interface ProofDataWithMetadata extends ProofData {
+  __circuitName?: string;
+  __maxHeaderLength?: number;
+  __maxBodyLength?: number;
+}
+
+/**
+ * Select the appropriate circuit based on header and body mask lengths
+ * 
+ * @param headerMaskLength - Length of the header mask array
+ * @param bodyMaskLength - Length of the body mask array
+ * @returns The circuit configuration that can accommodate both sizes
+ */
+function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
+  // Find the smallest circuit that can accommodate both header and body
+  for (const config of CIRCUIT_CONFIGS) {
+    if (headerMaskLength <= config.maxHeaderLength && bodyMaskLength <= config.maxBodyLength) {
+      console.log(`📦 [CIRCUIT] Selected ${config.name} (header: ${headerMaskLength}/${config.maxHeaderLength}, body: ${bodyMaskLength}/${config.maxBodyLength})`);
+      return config;
+    }
+  }
+  
+  // If no circuit can accommodate, use the largest one and log a warning
+  const largest = CIRCUIT_CONFIGS[CIRCUIT_CONFIGS.length - 1];
+  console.warn(`⚠️ [CIRCUIT] Mask sizes (header: ${headerMaskLength}, body: ${bodyMaskLength}) exceed all circuit limits. Using largest circuit: ${largest.name}`);
+  return largest;
+}
 
 /**
  * Generate a zero-knowledge proof for email verification
@@ -20,7 +80,7 @@ await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
  * @param email - The original email content (EML format)
  * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask, 0 = reveal)
  * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask, 0 = reveal)
- * @returns ProofData containing the proof and public inputs
+ * @returns ProofData containing the proof and public inputs, or null if generation failed
  * 
  * IMPORTANT: The returned proof does NOT contain the original email.
  * - The proof.proof field contains cryptographic proof bytes (not the email)
@@ -35,22 +95,25 @@ export const handleGenerateProof = async (
   bodyMask: number[]
 ) => {
   try {
-    const noir = new Noir(circuitEmailMask);
-    const backend = new UltraHonkBackend(circuitEmailMask.bytecode);
+    // Select circuit based on actual mask lengths (before padding)
+    const circuitConfig = selectCircuit(headerMask.length, bodyMask.length);
+    const selectedCircuit = circuitConfig.circuit;
+    
+    const noir = new Noir(selectedCircuit);
+    const backend = new UltraHonkBackend(selectedCircuit.bytecode);
 
     const inputParams = {
-      maxHeadersLength: 512,
-      maxBodyLength: 1024,
+      maxHeadersLength: circuitConfig.maxHeaderLength,
+      maxBodyLength: circuitConfig.maxBodyLength,
     };
 
     // Pad arrays with 0s if they're shorter than required lengths, or slice if longer
-    const paddedHeaderMask = headerMask.length < 512
-      ? [...headerMask, ...new Array(512 - headerMask.length).fill(0)]
-      : headerMask.slice(0, 512);
-    const paddedBodyMask = bodyMask.length < 1024
-      ? [...bodyMask, ...new Array(1024 - bodyMask.length).fill(0)]
-      : bodyMask.slice(0, 1024);
-
+    const paddedHeaderMask = headerMask.length < circuitConfig.maxHeaderLength
+      ? [...headerMask, ...new Array(circuitConfig.maxHeaderLength - headerMask.length).fill(0)]
+      : headerMask.slice(0, circuitConfig.maxHeaderLength);
+    const paddedBodyMask = bodyMask.length < circuitConfig.maxBodyLength
+      ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(0)]
+      : bodyMask.slice(0, circuitConfig.maxBodyLength);
 
     const inputs = await generateEmailVerifierInputs(email, {
       headerMask: paddedHeaderMask,
@@ -64,13 +127,28 @@ export const handleGenerateProof = async (
     const proof = await backend.generateProof(witness);
     console.timeEnd("generateProof");
 
+    // Store circuit name in proof metadata for verification
+    // We'll add it as a custom property (note: this won't affect the proof structure)
+    const proofWithMetadata = proof as ProofDataWithMetadata;
+    proofWithMetadata.__circuitName = circuitConfig.name;
+    proofWithMetadata.__maxHeaderLength = circuitConfig.maxHeaderLength;
+    proofWithMetadata.__maxBodyLength = circuitConfig.maxBodyLength;
+
     return proof;
   } catch (e) {
     console.error(e);
+    return null;
   }
 };
 
-export const handleVerifyProof = async (proof: ProofData) => {
+/**
+ * Verify a zero-knowledge proof
+ * 
+ * @param proof - The ProofData object to verify
+ * @param circuitName - Optional circuit name to use for verification. If not provided, will try to detect from proof metadata or try all circuits
+ * @returns true if proof is valid, false otherwise
+ */
+export const handleVerifyProof = async (proof: ProofData, circuitName?: string) => {
   try {
     console.log("🔍 [VERIFY] Starting proof verification");
     console.log("🔍 [VERIFY] publicInputs count:", proof.publicInputs?.length);
@@ -89,7 +167,53 @@ export const handleVerifyProof = async (proof: ProofData) => {
       }
     }
     
-    const backend = new UltraHonkBackend(circuitEmailMask.bytecode);
+    // Determine which circuit to use for verification
+    let circuitToUse: CompiledCircuit | null = null;
+    
+    if (circuitName) {
+      // Use specified circuit
+      const config = CIRCUIT_CONFIGS.find(c => c.name === circuitName);
+      if (config) {
+        circuitToUse = config.circuit;
+        console.log(`🔍 [VERIFY] Using specified circuit: ${circuitName}`);
+      } else {
+        console.warn(`⚠️ [VERIFY] Circuit name "${circuitName}" not found, trying to detect...`);
+      }
+    }
+    
+    if (!circuitToUse) {
+      // Try to detect from proof metadata
+      const proofWithMeta = proof as ProofDataWithMetadata;
+      if (proofWithMeta.__circuitName) {
+        const config = CIRCUIT_CONFIGS.find(c => c.name === proofWithMeta.__circuitName);
+        if (config) {
+          circuitToUse = config.circuit;
+          console.log(`🔍 [VERIFY] Detected circuit from metadata: ${proofWithMeta.__circuitName}`);
+        }
+      }
+    }
+    
+    if (!circuitToUse) {
+      // Try all circuits (fallback)
+      console.log("🔍 [VERIFY] Circuit not specified or detected, trying all circuits...");
+      for (const config of CIRCUIT_CONFIGS) {
+        try {
+          const backend = new UltraHonkBackend(config.circuit.bytecode);
+          const isValid = await backend.verifyProof(proof);
+          if (isValid) {
+            console.log(`✅ [VERIFY] Verification successful with circuit: ${config.name}`);
+            return true;
+          }
+        } catch {
+          // Try next circuit
+          continue;
+        }
+      }
+      console.error("❌ [VERIFY] Proof verification failed with all circuits");
+      return false;
+    }
+    
+    const backend = new UltraHonkBackend(circuitToUse.bytecode);
     console.log("🔍 [VERIFY] Calling backend.verifyProof()...");
     const isValid = await backend.verifyProof(proof);
     console.log("✅ [VERIFY] Verification result:", isValid);
@@ -158,11 +282,16 @@ export function extractMaskedDataFromProof(proof: ProofData): {
   emailNullifier: Uint8Array;
 } | null {
   try {
+    // Determine header and body sizes from proof metadata or use defaults
+    const proofWithMeta = proof as ProofDataWithMetadata;
+    const maxHeaderLength = proofWithMeta.__maxHeaderLength || 512;
+    const maxBodyLength = proofWithMeta.__maxBodyLength || 1024;
+    
     // Based on the circuit, publicInputs should contain:
     // [0]: Field element (Pedersen hash of DKIM pubkey) - 32 bytes
     // [1]: Field element (email nullifier) - 32 bytes  
-    // [2]: Masked header - 512 bytes
-    // [3]: Masked body - 1024 bytes
+    // [2]: Masked header - variable size based on circuit
+    // [3]: Masked body - variable size based on circuit
     
     if (!proof.publicInputs || proof.publicInputs.length < 4) {
       return null;
@@ -186,8 +315,16 @@ export function extractMaskedDataFromProof(proof: ProofData): {
 
     const publicKeyHash = toUint8Array(publicKeyHashRaw);
     const emailNullifier = toUint8Array(emailNullifierRaw);
-    const maskedHeaderBytes = toUint8Array(maskedHeaderBytesRaw);
-    const maskedBodyBytes = toUint8Array(maskedBodyBytesRaw);
+    let maskedHeaderBytes = toUint8Array(maskedHeaderBytesRaw);
+    let maskedBodyBytes = toUint8Array(maskedBodyBytesRaw);
+    
+    // Trim to expected lengths if needed
+    if (maskedHeaderBytes.length > maxHeaderLength) {
+      maskedHeaderBytes = maskedHeaderBytes.slice(0, maxHeaderLength);
+    }
+    if (maskedBodyBytes.length > maxBodyLength) {
+      maskedBodyBytes = maskedBodyBytes.slice(0, maxBodyLength);
+    }
 
     // Convert masked data to strings (masked positions will show as null bytes or placeholders)
     const decoder = new TextDecoder("utf-8", { fatal: false });
