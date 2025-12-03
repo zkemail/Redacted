@@ -38,3 +38,8 @@ service-account*.json
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/
+thoughts/
