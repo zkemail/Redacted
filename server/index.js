@@ -127,44 +127,9 @@ app.post('/api/generate-uuid', async (req, res) => {
   }
 });
 
-// Generate signed URL for EML upload (using provided UUID)
-app.post('/api/get-upload-url', async (req, res) => {
-  try {
-    const { uuid } = req.body;
-    
-    if (!uuid) {
-      return res.status(400).json({ error: 'UUID is required' });
-    }
-
-    // Store in folder structure: eml/{uuid}/email.eml
-    const filename = `eml/${uuid}/email.eml`;
-    const file = bucket.file(filename);
-
-    // Generate a signed URL for PUT upload (valid for 15 minutes)
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-      contentType: 'message/rfc822',
-    });
-
-    // Also get the public URL (after upload)
-    const publicUrl = `https://storage.googleapis.com/${bucketName}/${filename}`;
-
-    res.json({
-      uploadUrl: url,
-      publicUrl: publicUrl,
-      filename: filename,
-      uuid: uuid,
-    });
-  } catch (error) {
-    console.error('Error generating signed URL:', error);
-    res.status(500).json({
-      error: 'Failed to generate upload URL',
-      message: error.message,
-    });
-  }
-});
+// DEPRECATED: EML upload no longer needed - verification uses proof outputs directly
+// Keeping endpoint for backward compatibility but it will be removed in a future version
+// app.post('/api/get-upload-url', async (req, res) => { ... });
 
 // Generate signed URL for proof upload (using the same UUID as EML)
 app.post('/api/get-proof-upload-url', async (req, res) => {
@@ -217,38 +182,40 @@ app.post('/api/get-proof-upload-url', async (req, res) => {
   }
 });
 
-// Retrieve all data (proof, metadata, and EML info) by UUID
+// Retrieve proof and metadata by UUID
+// Note: EML files are never stored - verification uses proof outputs directly
 app.get('/api/get-data/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
     const proofFilename = `eml/${uuid}/proof.json`;
     const metadataFilename = `eml/${uuid}/metadata.json`;
-    const emlFilename = `eml/${uuid}/email.eml`;
-    
+
     const proofFile = bucket.file(proofFilename);
     const metadataFile = bucket.file(metadataFilename);
-    const emlFile = bucket.file(emlFilename);
 
-    // Check if files exist
+    // Check if required files exist
     const [proofExists] = await proofFile.exists();
     const [metadataExists] = await metadataFile.exists();
-    const [emlExists] = await emlFile.exists();
-    
-    if (!proofExists || !metadataExists || !emlExists) {
-      return res.status(404).json({ 
-        error: 'Data not found',
+
+    if (!proofExists) {
+      return res.status(404).json({
+        error: 'Proof not found',
         missing: {
           proof: !proofExists,
           metadata: !metadataExists,
-          eml: !emlExists,
         }
       });
     }
 
-    // Download all files
+    // Download proof (required)
     const [proofContents] = await proofFile.download();
-    const [metadataContents] = await metadataFile.download();
-    
+
+    // Download metadata if it exists (optional - for backward compatibility)
+    let metadataContents = null;
+    if (metadataExists) {
+      [metadataContents] = await metadataFile.download();
+    }
+
     // Parse JSON and validate structure
     let proofData;
     try {
@@ -314,16 +281,14 @@ app.get('/api/get-data/:uuid', async (req, res) => {
       throw error;
     }
     
-    const metadata = JSON.parse(metadataContents.toString());
+    // Parse metadata if available
+    const metadata = metadataContents
+      ? JSON.parse(metadataContents.toString())
+      : { headerMask: [], bodyMask: [], createdAt: null };
 
-    // Construct EML URL
-    const emlUrl = `https://storage.googleapis.com/${bucketName}/${emlFilename}`;
-
-    // Combine all data
+    // Return proof and metadata (no EML - verification uses proof outputs directly)
     res.json({
       proof: proofData,
-      emlUrl: emlUrl,
-      emlPath: emlFilename,
       headerMask: metadata.headerMask || [],
       bodyMask: metadata.bodyMask || [],
       createdAt: metadata.createdAt,

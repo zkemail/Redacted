@@ -77,17 +77,19 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
 
 /**
  * Generate a zero-knowledge proof for email verification
- * 
+ *
  * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask, 0 = reveal)
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask, 0 = reveal)
+ * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask/hide, 0 = reveal)
+ *                     Note: These values are inverted internally before passing to the circuit
+ * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask/hide, 0 = reveal)
+ *                   Note: These values are inverted internally before passing to the circuit
  * @returns ProofData containing the proof and public inputs, or null if generation failed
- * 
+ *
  * IMPORTANT: The returned proof does NOT contain the original email.
  * - The proof.proof field contains cryptographic proof bytes (not the email)
- * - The proof.publicInputs contains masked header/body (characters at masked positions are replaced)
+ * - The proof.publicInputs contains masked header/body (characters at masked positions are replaced with null bytes)
  * - The original email cannot be recovered from the proof - this is by design (zero-knowledge property)
- * 
+ *
  * To access the original email, you must store it separately (e.g., the 'email' parameter passed to this function)
  */
 export const handleGenerateProof = async (
@@ -113,13 +115,19 @@ export const handleGenerateProof = async (
       maxBodyLength: circuitConfig.maxBodyLength,
     };
 
-    // Pad arrays with 0s if they're shorter than required lengths, or slice if longer
-    const paddedHeaderMask = headerMask.length < circuitConfig.maxHeaderLength
-      ? [...headerMask, ...new Array(circuitConfig.maxHeaderLength - headerMask.length).fill(0)]
-      : headerMask.slice(0, circuitConfig.maxHeaderLength);
-    const paddedBodyMask = bodyMask.length < circuitConfig.maxBodyLength
-      ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(0)]
-      : bodyMask.slice(0, circuitConfig.maxBodyLength);
+    // Invert masks: frontend uses 1=hide, circuit uses 1=keep
+    // So we flip: 1 -> 0 (hide becomes zero) and 0 -> 1 (reveal becomes keep)
+    const invertedHeaderMask = headerMask.map(bit => bit === 1 ? 0 : 1);
+    const invertedBodyMask = bodyMask.map(bit => bit === 1 ? 0 : 1);
+
+    // Pad arrays with 1s (keep/reveal) if shorter than required lengths, or slice if longer
+    // Padding bytes should be revealed (kept), not hidden
+    const paddedHeaderMask = invertedHeaderMask.length < circuitConfig.maxHeaderLength
+      ? [...invertedHeaderMask, ...new Array(circuitConfig.maxHeaderLength - invertedHeaderMask.length).fill(1)]
+      : invertedHeaderMask.slice(0, circuitConfig.maxHeaderLength);
+    const paddedBodyMask = invertedBodyMask.length < circuitConfig.maxBodyLength
+      ? [...invertedBodyMask, ...new Array(circuitConfig.maxBodyLength - invertedBodyMask.length).fill(1)]
+      : invertedBodyMask.slice(0, circuitConfig.maxBodyLength);
 
     const inputs = await generateEmailVerifierInputs(email, {
       headerMask: paddedHeaderMask,
@@ -239,10 +247,12 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
 
 /**
  * Generate proof and extract masked email in one call
- * 
+ *
  * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask, 0 = reveal)
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask, 0 = reveal)
+ * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask/hide, 0 = reveal)
+ *                     Note: These values are inverted internally before passing to the circuit
+ * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask/hide, 0 = reveal)
+ *                   Note: These values are inverted internally before passing to the circuit
  * @returns Object containing both the proof and the masked email data, or null if generation failed
  */
 export async function generateProofWithMaskedEmail(
@@ -270,14 +280,20 @@ export async function generateProofWithMaskedEmail(
 
 /**
  * Extract masked header and body from proof public inputs
- * 
+ *
  * IMPORTANT: This returns the MASKED versions, NOT the original email.
  * The original email cannot be recovered from the proof - that's the whole
  * point of zero-knowledge proofs. The masked data has characters at masked
  * positions replaced (typically with 0 or placeholder values).
- * 
- * To get the original email, you must store it separately (e.g., in GCS).
- * 
+ *
+ * Noir circuit output structure:
+ * - publicInputs[0]: Public key hash (32-byte field element as hex string)
+ * - publicInputs[1]: Email nullifier (32-byte field element as hex string)
+ * - publicInputs[2..2+maxHeaderLength-1]: Each byte of masked header (one field per byte)
+ * - publicInputs[2+maxHeaderLength..]: Each byte of masked body (one field per byte)
+ *
+ * Each byte is stored as a 32-byte padded hex string, e.g., "0x0000...0061" = 'a' (0x61)
+ *
  * @param proof The ProofData object from handleGenerateProof
  * @returns Object containing masked header and body as strings, or null if structure is unexpected
  */
@@ -288,54 +304,155 @@ export function extractMaskedDataFromProof(proof: ProofData): {
   emailNullifier: Uint8Array;
 } | null {
   try {
-    // Determine header and body sizes from proof metadata or use defaults
-    const proofWithMeta = proof as ProofDataWithMetadata;
-    const maxHeaderLength = proofWithMeta.__maxHeaderLength || 512;
-    const maxBodyLength = proofWithMeta.__maxBodyLength || 1024;
-    
-    // Based on the circuit, publicInputs should contain:
-    // [0]: Field element (Pedersen hash of DKIM pubkey) - 32 bytes
-    // [1]: Field element (email nullifier) - 32 bytes  
-    // [2]: Masked header - variable size based on circuit
-    // [3]: Masked body - variable size based on circuit
-    
     if (!proof.publicInputs || proof.publicInputs.length < 4) {
+      console.error("Invalid proof: publicInputs too short");
       return null;
     }
 
-    const publicKeyHashRaw: unknown = proof.publicInputs[0];
-    const emailNullifierRaw: unknown = proof.publicInputs[1];
-    const maskedHeaderBytesRaw: unknown = proof.publicInputs[2];
-    const maskedBodyBytesRaw: unknown = proof.publicInputs[3];
+    // Determine circuit configuration from publicInputs length
+    // Structure: 2 (pubkey + nullifier) + maxHeaderLength + maxBodyLength
+    const totalInputs = proof.publicInputs.length;
+    let maxHeaderLength: number;
+    let maxBodyLength: number;
 
-    // Helper to convert to Uint8Array
-    const toUint8Array = (val: unknown): Uint8Array => {
-      if (val instanceof Uint8Array) return val;
-      if (Array.isArray(val)) return new Uint8Array(val);
-      if (typeof val === 'string') {
-        // If it's a string, try to decode it (though this shouldn't happen)
-        return new TextEncoder().encode(val);
+    // Check against known circuit configurations
+    // 2 + 512 + 1024 = 1538 (email_mask)
+    // 2 + 1024 + 2048 = 3074 (email_mask_mid)
+    // 2 + 2048 + 4096 = 6146 (email_mask_large)
+    // 2 + 4096 + 8192 = 12290 (email_mask_xlarge)
+    if (totalInputs === 1538) {
+      maxHeaderLength = 512;
+      maxBodyLength = 1024;
+    } else if (totalInputs === 3074) {
+      maxHeaderLength = 1024;
+      maxBodyLength = 2048;
+    } else if (totalInputs === 6146) {
+      maxHeaderLength = 2048;
+      maxBodyLength = 4096;
+    } else if (totalInputs === 12290) {
+      maxHeaderLength = 4096;
+      maxBodyLength = 8192;
+    } else {
+      // Try to use metadata if available
+      const proofWithMeta = proof as ProofDataWithMetadata;
+      if (proofWithMeta.__maxHeaderLength && proofWithMeta.__maxBodyLength) {
+        maxHeaderLength = proofWithMeta.__maxHeaderLength;
+        maxBodyLength = proofWithMeta.__maxBodyLength;
+      } else {
+        console.error(`Unknown circuit configuration: ${totalInputs} publicInputs`);
+        return null;
       }
-      return new Uint8Array(val as ArrayLike<number>);
+    }
+
+    console.log(`Detected circuit: maxHeader=${maxHeaderLength}, maxBody=${maxBodyLength}`);
+
+    // Helper to extract a single byte from a 32-byte padded hex field
+    // e.g., "0x0000000000000000000000000000000000000000000000000000000000000061" -> 0x61
+    const hexFieldToByte = (hexField: unknown): number => {
+      if (typeof hexField === 'string') {
+        // Remove 0x prefix if present
+        const hex = hexField.startsWith('0x') ? hexField.slice(2) : hexField;
+        // Parse the last 2 characters (1 byte) - the actual value
+        const lastByte = hex.slice(-2);
+        return parseInt(lastByte, 16);
+      }
+      if (typeof hexField === 'number') {
+        return hexField & 0xFF;
+      }
+      return 0;
     };
 
-    const publicKeyHash = toUint8Array(publicKeyHashRaw);
-    const emailNullifier = toUint8Array(emailNullifierRaw);
-    let maskedHeaderBytes = toUint8Array(maskedHeaderBytesRaw);
-    let maskedBodyBytes = toUint8Array(maskedBodyBytesRaw);
-    
-    // Trim to expected lengths if needed
-    if (maskedHeaderBytes.length > maxHeaderLength) {
-      maskedHeaderBytes = maskedHeaderBytes.slice(0, maxHeaderLength);
-    }
-    if (maskedBodyBytes.length > maxBodyLength) {
-      maskedBodyBytes = maskedBodyBytes.slice(0, maxBodyLength);
+    // Helper to convert hex string to Uint8Array (for pubkey hash and nullifier)
+    const hexToUint8Array = (hexField: unknown): Uint8Array => {
+      if (typeof hexField === 'string') {
+        const hex = hexField.startsWith('0x') ? hexField.slice(2) : hexField;
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < bytes.length; i++) {
+          bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
+        return bytes;
+      }
+      return new Uint8Array(0);
+    };
+
+    // Extract public key hash and nullifier (first 2 elements)
+    const publicKeyHash = hexToUint8Array(proof.publicInputs[0]);
+    const emailNullifier = hexToUint8Array(proof.publicInputs[1]);
+
+    // Extract header bytes (elements 2 to 2+maxHeaderLength)
+    const headerStartIdx = 2;
+    const headerEndIdx = headerStartIdx + maxHeaderLength;
+    const headerBytes = new Uint8Array(maxHeaderLength);
+    for (let i = 0; i < maxHeaderLength; i++) {
+      headerBytes[i] = hexFieldToByte(proof.publicInputs[headerStartIdx + i]);
     }
 
-    // Convert masked data to strings (masked positions will show as null bytes or placeholders)
+    // Extract body bytes (elements 2+maxHeaderLength to end)
+    const bodyStartIdx = headerEndIdx;
+    const bodyBytes = new Uint8Array(maxBodyLength);
+    for (let i = 0; i < maxBodyLength; i++) {
+      bodyBytes[i] = hexFieldToByte(proof.publicInputs[bodyStartIdx + i]);
+    }
+
+    // Convert to strings (null bytes 0x00 represent masked characters)
     const decoder = new TextDecoder("utf-8", { fatal: false });
-    const maskedHeader = decoder.decode(maskedHeaderBytes);
-    const maskedBody = decoder.decode(maskedBodyBytes);
+
+    // Trim SHA-256 padding and trailing zeros from header and body
+    // The circuit includes SHA-256 padding for DKIM verification:
+    // - Original content
+    // - 0x80 byte (padding start marker)
+    // - Zero bytes
+    // - 64-bit message length
+    // We need to find and remove this padding to show only the actual email content
+    const trimSha256Padding = (bytes: Uint8Array): Uint8Array => {
+      // First, trim trailing zeros from circuit padding
+      let end = bytes.length;
+      while (end > 0 && bytes[end - 1] === 0) {
+        end--;
+      }
+
+      // Now look for SHA-256 padding pattern:
+      // The padding ends with a 64-bit (8 byte) length field
+      // Before that are zeros, and before those is the 0x80 marker
+      // We need to find the 0x80 byte that starts the SHA-256 padding
+
+      // Look backwards from current end for the 0x80 padding marker
+      // It should be followed by zeros (and possibly length bytes we already trimmed)
+      let sha256PaddingStart = -1;
+      for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
+        // SHA-256 padding can be at most 64+8=72 bytes
+        if (bytes[i] === 0x80) {
+          // Check if everything after this (up to where we trimmed) looks like padding
+          // (should be zeros or the length bytes)
+          let looksLikePadding = true;
+          for (let j = i + 1; j < end; j++) {
+            // After 0x80, we expect zeros, or non-zero bytes could be the length field
+            // The length field is at the very end, so if we see non-zero,
+            // it should be within the last 8 bytes
+            if (bytes[j] !== 0 && j < end - 8) {
+              looksLikePadding = false;
+              break;
+            }
+          }
+          if (looksLikePadding) {
+            sha256PaddingStart = i;
+            break;
+          }
+        }
+      }
+
+      if (sha256PaddingStart >= 0) {
+        end = sha256PaddingStart;
+      }
+
+      return bytes.slice(0, end);
+    };
+
+    const trimmedHeaderBytes = trimSha256Padding(headerBytes);
+    const trimmedBodyBytes = trimSha256Padding(bodyBytes);
+
+    const maskedHeader = decoder.decode(trimmedHeaderBytes);
+    const maskedBody = decoder.decode(trimmedBodyBytes);
 
     return {
       maskedHeader,

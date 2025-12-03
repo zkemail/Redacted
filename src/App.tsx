@@ -8,7 +8,7 @@ import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail } from "./utils/emlParser";
 import { handleGenerateProof } from "./lib";
-import { uploadEmlToGCS, generateUuid } from "./utils/gcsUpload";
+import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
 
@@ -116,19 +116,17 @@ export default function MainApp() {
         throw new Error("Proof generation failed");
       }
       
-      // Upload EML file and proof to Google Cloud Storage after proof is generated
+      // Upload proof to Google Cloud Storage after proof is generated
+      // Note: EML upload removed - verification now uses proof outputs directly
       if (proof) {
         try {
-          // Step 1: Generate a UUID for this email/proof pair
+          // Step 1: Generate a UUID for this proof
           const uuid = await generateUuid();
-          
-          // Step 2: Upload EML file to GCS using the UUID
-          await uploadEmlToGCS(email.originalEml, uuid);
-          
-          // Step 3: Generate shareable verification URL (stores proof on server, returns short URL)
+
+          // Step 2: Generate shareable verification URL (stores proof on server, returns short URL)
           const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
           setVerificationUrl(shareableUrl);
-          
+
           // Copy to clipboard
           try {
             await navigator.clipboard.writeText(shareableUrl);
@@ -136,7 +134,7 @@ export default function MainApp() {
             console.warn("Failed to copy to clipboard:", clipboardError);
           }
         } catch (uploadError) {
-          console.error("Error uploading files to GCS:", uploadError);
+          console.error("Error uploading proof to GCS:", uploadError);
           // Don't fail the entire operation if upload fails
         }
       }

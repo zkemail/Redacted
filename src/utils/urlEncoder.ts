@@ -66,6 +66,8 @@ export async function createVerificationUrl(
   };
 
   const proofJson = JSON.stringify(proofForStorage);
+
+  console.log("Proof for storage: ", proofJson);
   
   const apiUrl = import.meta.env.VITE_GCS_API_URL || 'http://localhost:3001/api';
   
@@ -111,11 +113,11 @@ export async function createVerificationUrl(
 }
 
 /**
- * Fetches all data (proof, EML URL, masks) from server using UUID
+ * Fetches proof and metadata from server using UUID
+ * Note: EML files are not stored - verification uses proof outputs directly
  */
 export async function fetchProofData(uuid: string): Promise<{
   proof: ProofData | null;
-  emlUrl: string | null;
   headerMask: number[];
   bodyMask: number[];
 }> {
@@ -223,13 +225,12 @@ export async function fetchProofData(uuid: string): Promise<{
     
     return {
       proof,
-      emlUrl: data.emlUrl,
       headerMask: data.headerMask || [],
       bodyMask: data.bodyMask || [],
     };
   } catch (error) {
     console.error('Error fetching proof data:', error);
-    return { proof: null, emlUrl: null, headerMask: [], bodyMask: [] };
+    return { proof: null, headerMask: [], bodyMask: [] };
   }
 }
 
