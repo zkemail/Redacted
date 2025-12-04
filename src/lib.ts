@@ -79,10 +79,8 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
  * Generate a zero-knowledge proof for email verification
  *
  * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask/hide, 0 = reveal)
- *                     Note: These values are inverted internally before passing to the circuit
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask/hide, 0 = reveal)
- *                   Note: These values are inverted internally before passing to the circuit
+ * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (0 = mask/hide, 1 = reveal)
+ * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (0 = mask/hide, 1 = reveal)
  * @returns ProofData containing the proof and public inputs, or null if generation failed
  *
  * IMPORTANT: The returned proof does NOT contain the original email.
@@ -115,19 +113,17 @@ export const handleGenerateProof = async (
       maxBodyLength: circuitConfig.maxBodyLength,
     };
 
-    // Invert masks: frontend uses 1=hide, circuit uses 1=keep
-    // So we flip: 1 -> 0 (hide becomes zero) and 0 -> 1 (reveal becomes keep)
-    const invertedHeaderMask = headerMask.map(bit => bit === 1 ? 0 : 1);
-    const invertedBodyMask = bodyMask.map(bit => bit === 1 ? 0 : 1);
+    // Frontend now uses circuit-aligned semantics: 0=hide/mask, 1=reveal/keep
+    // No inversion needed - pass masks directly
 
-    // Pad arrays with 1s (keep/reveal) if shorter than required lengths, or slice if longer
+    // Pad arrays with 1s (reveal) if shorter than required lengths, or slice if longer
     // Padding bytes should be revealed (kept), not hidden
-    const paddedHeaderMask = invertedHeaderMask.length < circuitConfig.maxHeaderLength
-      ? [...invertedHeaderMask, ...new Array(circuitConfig.maxHeaderLength - invertedHeaderMask.length).fill(1)]
-      : invertedHeaderMask.slice(0, circuitConfig.maxHeaderLength);
-    const paddedBodyMask = invertedBodyMask.length < circuitConfig.maxBodyLength
-      ? [...invertedBodyMask, ...new Array(circuitConfig.maxBodyLength - invertedBodyMask.length).fill(1)]
-      : invertedBodyMask.slice(0, circuitConfig.maxBodyLength);
+    const paddedHeaderMask = headerMask.length < circuitConfig.maxHeaderLength
+      ? [...headerMask, ...new Array(circuitConfig.maxHeaderLength - headerMask.length).fill(1)]
+      : headerMask.slice(0, circuitConfig.maxHeaderLength);
+    const paddedBodyMask = bodyMask.length < circuitConfig.maxBodyLength
+      ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(1)]
+      : bodyMask.slice(0, circuitConfig.maxBodyLength);
 
     const inputs = await generateEmailVerifierInputs(email, {
       headerMask: paddedHeaderMask,
@@ -249,10 +245,8 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
  * Generate proof and extract masked email in one call
  *
  * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (1 = mask/hide, 0 = reveal)
- *                     Note: These values are inverted internally before passing to the circuit
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (1 = mask/hide, 0 = reveal)
- *                   Note: These values are inverted internally before passing to the circuit
+ * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (0 = mask/hide, 1 = reveal)
+ * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (0 = mask/hide, 1 = reveal)
  * @returns Object containing both the proof and the masked email data, or null if generation failed
  */
 export async function generateProofWithMaskedEmail(

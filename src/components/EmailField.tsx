@@ -151,16 +151,16 @@ export default function EmailField({
   // Initialize mask bits if not provided
   const localMaskBits = useMemo(() => {
     if (maskBits && maskBits.length === value.length) {
-      // For restrictToNameOnly fields, ensure domain part is always 0
+      // For restrictToNameOnly fields, ensure domain part is always revealed (1)
       const bits = [...maskBits];
       if (restrictToNameOnly && maskableRange.end < value.length) {
         for (let i = maskableRange.end; i < value.length; i++) {
-          bits[i] = 0;
+          bits[i] = 1;
         }
       }
       return bits;
     }
-    return new Array(value.length).fill(0);
+    return new Array(value.length).fill(1);
   }, [maskBits, value.length, restrictToNameOnly, maskableRange.end]);
 
   // Track previous isMasked to detect changes and update mask bits
@@ -176,22 +176,22 @@ export default function EmailField({
     
     const newBits = [...localMaskBits];
     if (isMasked) {
-      // Hide: set mask bits to 1 for the maskable range only
+      // Hide: set mask bits to 0 (circuit: 0 = hide) for the maskable range only
       // For restrictToNameOnly fields, this is only the name part (before @)
       // For other fields, this is the entire field
       for (let i = maskableRange.start; i < maskableRange.end; i++) {
-        newBits[i] = 1;
+        newBits[i] = 0;
       }
-      // Ensure domain part (after @) is never masked for restrictToNameOnly fields
+      // Ensure domain part (after @) is always revealed for restrictToNameOnly fields
       if (restrictToNameOnly && maskableRange.end < value.length) {
         for (let i = maskableRange.end; i < value.length; i++) {
-          newBits[i] = 0;
+          newBits[i] = 1;
         }
       }
     } else {
-      // Show: set mask bits to 0 for the maskable range
+      // Show: set mask bits to 1 (circuit: 1 = reveal) for the maskable range
       for (let i = maskableRange.start; i < maskableRange.end; i++) {
-        newBits[i] = 0;
+        newBits[i] = 1;
       }
     }
     
@@ -232,7 +232,7 @@ export default function EmailField({
         const isDomainPart = restrictToNameOnly && index >= maskableRange.end;
         const unselectableStyle = isDomainPart ? ' style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;"' : '';
         
-        if (currentMask === 1) {
+        if (currentMask === 0) {
           maskedSegments++;
           if (useBlackMask) {
             // Solid black mask - completely hides the text
@@ -255,13 +255,13 @@ export default function EmailField({
     [escapeHtml, useBlackMask, label, restrictToNameOnly, maskableRange.end]
   );
 
-  // Ensure domain part is always unmasked for restrictToNameOnly fields
+  // Ensure domain part is always revealed for restrictToNameOnly fields
   const sanitizedMaskBits = useMemo(() => {
     const bits = [...localMaskBits];
     if (restrictToNameOnly && maskableRange.end < value.length) {
-      // Ensure domain part (after @) is always 0
+      // Ensure domain part (after @) is always revealed (1)
       for (let i = maskableRange.end; i < value.length; i++) {
-        bits[i] = 0;
+        bits[i] = 1;
       }
     }
     return bits;
@@ -373,8 +373,8 @@ export default function EmailField({
       return;
     }
 
-    const allMasked = selectionBits.every((bit) => bit === 1);
-    const allUnmasked = selectionBits.every((bit) => bit === 0);
+    const allMasked = selectionBits.every((bit) => bit === 0);
+    const allUnmasked = selectionBits.every((bit) => bit === 1);
 
     let maskStateForSelection: "masked" | "unmasked" | "partial" = "partial";
     if (allMasked) {
@@ -417,13 +417,13 @@ export default function EmailField({
     }
 
     for (let i = boundedStart; i < boundedEnd; i++) {
-      newBits[i] = 1;
+      newBits[i] = 0;
     }
-    
-    // Ensure domain part is always 0 for restrictToNameOnly fields
+
+    // Ensure domain part is always revealed (1) for restrictToNameOnly fields
     if (restrictToNameOnly && maskableRange.end < value.length) {
       for (let i = maskableRange.end; i < value.length; i++) {
-        newBits[i] = 0;
+        newBits[i] = 1;
       }
     }
 
@@ -452,13 +452,13 @@ export default function EmailField({
     }
 
     for (let i = boundedStart; i < boundedEnd; i++) {
-      newBits[i] = 0;
+      newBits[i] = 1;
     }
-    
-    // Ensure domain part is always 0 for restrictToNameOnly fields
+
+    // Ensure domain part is always revealed (1) for restrictToNameOnly fields
     if (restrictToNameOnly && maskableRange.end < value.length) {
       for (let i = maskableRange.end; i < value.length; i++) {
-        newBits[i] = 0;
+        newBits[i] = 1;
       }
     }
 

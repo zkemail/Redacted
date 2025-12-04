@@ -74,24 +74,25 @@ export default function EmailCard({
   const bodyText = email.bodyText ?? "";
 
   // Mask bits for all fields - use useMemo to compute initial values
+  // Circuit-aligned semantics: 1 = reveal, 0 = mask
   const initialFromBits = useMemo(
-    () => new Array(email.from.length).fill(0),
+    () => new Array(email.from.length).fill(1),
     [email.from.length]
   );
   const initialToBits = useMemo(
-    () => new Array(email.to.length).fill(0),
+    () => new Array(email.to.length).fill(1),
     [email.to.length]
   );
   const initialTimeBits = useMemo(
-    () => new Array(email.time.length).fill(0),
+    () => new Array(email.time.length).fill(1),
     [email.time.length]
   );
   const initialSubjectBits = useMemo(
-    () => new Array(email.subject.length).fill(0),
+    () => new Array(email.subject.length).fill(1),
     [email.subject.length]
   );
   const initialBodyBits = useMemo(
-    () => new Array(bodyText.length).fill(0),
+    () => new Array(bodyText.length).fill(1),
     [bodyText.length]
   );
 
@@ -129,39 +130,39 @@ export default function EmailCard({
       return;
     }
     
-    // Update from mask bits
+    // Update from mask bits - circuit-aligned: 0 = hide, 1 = reveal
     if (maskedFields.has("from")) {
-      setFromMaskBits(new Array(email.from.length).fill(1));
-    } else {
       setFromMaskBits(new Array(email.from.length).fill(0));
+    } else {
+      setFromMaskBits(new Array(email.from.length).fill(1));
     }
-    
+
     // Update to mask bits
     if (maskedFields.has("to")) {
-      setToMaskBits(new Array(email.to.length).fill(1));
-    } else {
       setToMaskBits(new Array(email.to.length).fill(0));
+    } else {
+      setToMaskBits(new Array(email.to.length).fill(1));
     }
-    
+
     // Update time mask bits
     if (maskedFields.has("time")) {
-      setTimeMaskBits(new Array(email.time.length).fill(1));
-    } else {
       setTimeMaskBits(new Array(email.time.length).fill(0));
+    } else {
+      setTimeMaskBits(new Array(email.time.length).fill(1));
     }
-    
+
     // Update subject mask bits
     if (maskedFields.has("subject")) {
-      setSubjectMaskBits(new Array(email.subject.length).fill(1));
-    } else {
       setSubjectMaskBits(new Array(email.subject.length).fill(0));
+    } else {
+      setSubjectMaskBits(new Array(email.subject.length).fill(1));
     }
-    
+
     // Update body mask bits
     if (maskedFields.has("body")) {
-      setBodyMaskBits(new Array(bodyText.length).fill(1));
-    } else {
       setBodyMaskBits(new Array(bodyText.length).fill(0));
+    } else {
+      setBodyMaskBits(new Array(bodyText.length).fill(1));
     }
   }, [maskedFields, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length, initialMaskBits]);
 
@@ -240,12 +241,13 @@ export default function EmailCard({
     if (prevEmailKeyRef.current !== emailKey) {
       prevEmailKeyRef.current = emailKey;
       // Use setTimeout to batch updates and avoid synchronous setState warning
+      // Circuit-aligned semantics: 1 = reveal (all revealed by default)
       const resetState: MaskBitsState = {
-        fromMaskBits: new Array(email.from.length).fill(0),
-        toMaskBits: new Array(email.to.length).fill(0),
-        timeMaskBits: new Array(email.time.length).fill(0),
-        subjectMaskBits: new Array(email.subject.length).fill(0),
-        bodyMaskBits: new Array(bodyText.length).fill(0),
+        fromMaskBits: new Array(email.from.length).fill(1),
+        toMaskBits: new Array(email.to.length).fill(1),
+        timeMaskBits: new Array(email.time.length).fill(1),
+        subjectMaskBits: new Array(email.subject.length).fill(1),
+        bodyMaskBits: new Array(bodyText.length).fill(1),
       };
       setTimeout(() => {
         setFromMaskBits(resetState.fromMaskBits);
@@ -274,12 +276,13 @@ export default function EmailCard({
 
   // Helper function to get current mask bits state
   const getCurrentMaskBitsState = useCallback((): MaskBitsState => {
+    // Circuit-aligned: default to revealed (1) if length mismatch
     return {
-      fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-      toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-      timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-      subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
-      bodyMaskBits: bodyMaskBits.length === bodyText.length ? [...bodyMaskBits] : new Array(bodyText.length).fill(0),
+      fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+      toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+      timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+      subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
+      bodyMaskBits: bodyMaskBits.length === bodyText.length ? [...bodyMaskBits] : new Array(bodyText.length).fill(1),
     };
   }, [fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, bodyMaskBits, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length]);
 
@@ -460,9 +463,9 @@ export default function EmailCard({
   const setFromMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     // Apply the change first
     setFromMaskBits(bits);
-    // Calculate what the new bits will be
-    const newBits = typeof bits === 'function' 
-      ? bits(fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0))
+    // Calculate what the new bits will be (default to revealed=1 if length mismatch)
+    const newBits = typeof bits === 'function'
+      ? bits(fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1))
       : bits;
     // Mark that we need to save history after the state updates
     pendingHistorySaveRef.current = { field: 'from', newBits };
@@ -471,7 +474,7 @@ export default function EmailCard({
   const setToMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setToMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0))
+      ? bits(toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'to', newBits };
   }, [toMaskBits, email.to.length]);
@@ -479,7 +482,7 @@ export default function EmailCard({
   const setTimeMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setTimeMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0))
+      ? bits(timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'time', newBits };
   }, [timeMaskBits, email.time.length]);
@@ -487,7 +490,7 @@ export default function EmailCard({
   const setSubjectMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setSubjectMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0))
+      ? bits(subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'subject', newBits };
   }, [subjectMaskBits, email.subject.length]);
@@ -509,13 +512,14 @@ export default function EmailCard({
       prevResetTriggerRef.current !== resetTrigger
     ) {
       prevResetTriggerRef.current = resetTrigger;
-      // Reset all mask bits to initial state (all zeros)
+      // Reset all mask bits to initial state (all ones = revealed)
+      // Circuit-aligned semantics: 1 = reveal
       const resetState: MaskBitsState = {
-        fromMaskBits: new Array(email.from.length).fill(0),
-        toMaskBits: new Array(email.to.length).fill(0),
-        timeMaskBits: new Array(email.time.length).fill(0),
-        subjectMaskBits: new Array(email.subject.length).fill(0),
-        bodyMaskBits: new Array(bodyText.length).fill(0),
+        fromMaskBits: new Array(email.from.length).fill(1),
+        toMaskBits: new Array(email.to.length).fill(1),
+        timeMaskBits: new Array(email.time.length).fill(1),
+        subjectMaskBits: new Array(email.subject.length).fill(1),
+        bodyMaskBits: new Array(bodyText.length).fill(1),
       };
       setTimeout(() => {
         setFromMaskBits(resetState.fromMaskBits);
@@ -580,7 +584,7 @@ export default function EmailCard({
         }
         const segment = text.slice(index, end);
         const escapedSegment = escapeHtml(segment);
-        if (currentMask === 1) {
+        if (currentMask === 0) {
           if (useBlackMask) {
             // Solid black mask - completely hides the text
             // Use inline styles to ensure the black background is applied
@@ -770,7 +774,8 @@ export default function EmailCard({
         } else {
           // HTML text is longer - expand bits array to match HTML length
           // Map bodyText positions to HTML positions
-          expandedBits = new Array(htmlTextLength).fill(0);
+          // Default to revealed (1) for unmatched positions
+          expandedBits = new Array(htmlTextLength).fill(1);
           
           if (bodyTextStartPos >= 0) {
             // Found bodyText at position bodyTextStartPos in HTML
@@ -834,7 +839,7 @@ export default function EmailCard({
                 segmentEnd += 1;
               }
               const segmentText = nodeText.slice(localIndex, segmentEnd);
-              if (currentMask === 1) {
+              if (currentMask === 0) {
                 const span = doc.createElement("span");
                 if (useBlackMask) {
                   span.style.backgroundColor = "#000000";
@@ -888,9 +893,10 @@ export default function EmailCard({
 
   const maskedBodyHtml = useMemo(() => {
     // Ensure bodyMaskBits has the correct length
-    const bits = bodyMaskBits.length === bodyText.length 
-      ? bodyMaskBits 
-      : new Array(bodyText.length).fill(0);
+    // Default to revealed (1) if length mismatch
+    const bits = bodyMaskBits.length === bodyText.length
+      ? bodyMaskBits
+      : new Array(bodyText.length).fill(1);
     
     if (email.bodyHtml) {
       return createMaskedHtmlFromHtml(email.bodyHtml, bits);
@@ -970,9 +976,10 @@ export default function EmailCard({
     }
 
     // Ensure bodyMaskBits has the correct length
-    const currentBodyMaskBits = bodyMaskBits.length === bodyText.length 
-      ? bodyMaskBits 
-      : new Array(bodyText.length).fill(0);
+    // Default to revealed (1) if length mismatch
+    const currentBodyMaskBits = bodyMaskBits.length === bodyText.length
+      ? bodyMaskBits
+      : new Array(bodyText.length).fill(1);
 
     const selectionBits = currentBodyMaskBits.slice(selectionStart, selectionEnd);
     if (selectionBits.length === 0) {
@@ -980,8 +987,8 @@ export default function EmailCard({
       return;
     }
 
-    const allMasked = selectionBits.every((bit) => bit === 1);
-    const allUnmasked = selectionBits.every((bit) => bit === 0);
+    const allMasked = selectionBits.every((bit) => bit === 0);
+    const allUnmasked = selectionBits.every((bit) => bit === 1);
 
     let maskStateForSelection: SelectionInfo["maskState"] = "partial";
     if (allMasked) {
@@ -1131,24 +1138,26 @@ export default function EmailCard({
     
     setBodyMaskBits((prev) => {
       // Always create a new array to ensure React detects the change
+      // Default to revealed (1) if length mismatch
       const next =
         prev.length === bodyText.length
           ? [...prev]
-          : new Array(bodyText.length).fill(0);
+          : new Array(bodyText.length).fill(1);
       const boundedStart = Math.max(0, Math.min(start, bodyText.length));
       const boundedEnd = Math.max(boundedStart, Math.min(end, bodyText.length));
-      
+
+      // Circuit-aligned: 0 = mask/hide
       for (let i = boundedStart; i < boundedEnd; i++) {
-        next[i] = 1;
+        next[i] = 0;
       }
       
       // Save the NEW state to history after the change
       // Construct the new state with the updated bodyMaskBits
       const newState: MaskBitsState = {
-        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
+        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
         bodyMaskBits: next,
       };
       // Check if we should save (avoid duplicates and don't save during restoration)
@@ -1160,7 +1169,7 @@ export default function EmailCard({
           saveToHistory(newState);
         }, 0);
       }
-      
+
       return next;
     });
     clearSelectionState();
@@ -1171,31 +1180,33 @@ export default function EmailCard({
       return;
     }
     const { start, end } = currentSelection;
-    
+
     // Clear browser selection and our selection state when unmask is applied
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
-    
+
     setBodyMaskBits((prev) => {
       // Always create a new array to ensure React detects the change
+      // Default to revealed (1) if length mismatch
       const next =
         prev.length === bodyText.length
           ? [...prev]
-          : new Array(bodyText.length).fill(0);
+          : new Array(bodyText.length).fill(1);
       const boundedStart = Math.max(0, Math.min(start, bodyText.length));
       const boundedEnd = Math.max(boundedStart, Math.min(end, bodyText.length));
-      
+
+      // Circuit-aligned: 1 = reveal/unmask
       for (let i = boundedStart; i < boundedEnd; i++) {
-        next[i] = 0;
+        next[i] = 1;
       }
-      
+
       // Save the NEW state to history after the change
       // Construct the new state with the updated bodyMaskBits
       const newState: MaskBitsState = {
-        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
+        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
         bodyMaskBits: next,
       };
       // Check if we should save (avoid duplicates and don't save during restoration)
@@ -1217,21 +1228,22 @@ export default function EmailCard({
   const aggregatedMask = useMemo(() => {
     if (!email.originalEml) {
       // Fallback: reconstruct EML if original not available
-      const zeroBits = (length: number) => new Array(length).fill(0);
+      // Circuit-aligned: 1 = reveal (labels should be revealed, not masked)
+      const revealBits = (length: number) => new Array(length).fill(1);
       const segments = [
-        { text: "From: ", bits: zeroBits("From: ".length) },
+        { text: "From: ", bits: revealBits("From: ".length) },
         { text: email.from, bits: fromMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "To: ", bits: zeroBits("To: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "To: ", bits: revealBits("To: ".length) },
         { text: email.to, bits: toMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "Date: ", bits: zeroBits("Date: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "Date: ", bits: revealBits("Date: ".length) },
         { text: email.time, bits: timeMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "Subject: ", bits: zeroBits("Subject: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "Subject: ", bits: revealBits("Subject: ".length) },
         { text: email.subject, bits: subjectMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "\n", bits: [0] },
+        { text: "\n", bits: [1] },
+        { text: "\n", bits: [1] },
         { text: bodyText, bits: bodyMaskBits },
       ];
 
@@ -1240,7 +1252,7 @@ export default function EmailCard({
         if (segment.bits.length === segment.text.length) {
           return segment.bits;
         }
-        const fallback = zeroBits(segment.text.length);
+        const fallback = revealBits(segment.text.length);
         for (
           let i = 0;
           i < Math.min(segment.bits.length, fallback.length);
@@ -1260,7 +1272,8 @@ export default function EmailCard({
 
     // Use original EML file - map field selections to original positions
     const originalEml = email.originalEml;
-    const bits = new Array(originalEml.length).fill(0);
+    // Circuit-aligned: 1 = reveal (start with everything revealed)
+    const bits = new Array(originalEml.length).fill(1);
 
     // Helper to find and map field value in original EML
     // IMPORTANT: This function maps mask bits to the raw EML positions
@@ -1445,7 +1458,8 @@ export default function EmailCard({
     // For body, use segment-based search to find and mask text in raw body
     // This approach directly searches for each masked text segment rather than relying on position arithmetic
     // Previous approaches (direct text match, HTML mapping) had offset bugs due to MIME structure and HTML tags
-    if (bodyMaskBits.length > 0 && bodyMaskBits.some(bit => bit === 1)) {
+    // Circuit-aligned: 0 = masked
+    if (bodyMaskBits.length > 0 && bodyMaskBits.some(bit => bit === 0)) {
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
 
@@ -1454,12 +1468,13 @@ export default function EmailCard({
         let bitsMapped = 0;
 
         // Extract masked text segments from bodyText and search for them in rawBody
+        // Circuit-aligned: 0 = masked
         let i = 0;
         while (i < bodyMaskBits.length && i < bodyText.length) {
-          if (bodyMaskBits[i] === 1) {
+          if (bodyMaskBits[i] === 0) {
             // Found start of a masked segment
             const segmentStart = i;
-            while (i < bodyMaskBits.length && bodyMaskBits[i] === 1) {
+            while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
               i++;
             }
             const segmentEnd = i;
@@ -1474,7 +1489,7 @@ export default function EmailCard({
                 const foundPos = rawBody.indexOf(maskedText, searchPos);
                 if (foundPos === -1) break;
 
-                // Mark these positions in the bits array
+                // Mark these positions in the bits array as masked (0)
                 // Note: The zkemail library uses DKIM canonicalized body which may have
                 // positions shifted relative to the raw body (typically by 1 byte).
                 // We adjust by subtracting 1 to compensate for this offset.
@@ -1483,7 +1498,8 @@ export default function EmailCard({
                 const absolutePos = bodyStart + adjustedFoundPos;
                 for (let j = 0; j < maskedText.length; j++) {
                   if (absolutePos + j < bits.length) {
-                    bits[absolutePos + j] = 1;
+                    // Circuit-aligned: 0 = mask/hide
+                    bits[absolutePos + j] = 0;
                     bitsMapped++;
                   }
                 }
@@ -1508,7 +1524,8 @@ export default function EmailCard({
 
     // 4. Also mask corresponding content in text/html MIME part if present
     // This ensures sensitive data is masked in both text and HTML representations
-    if (bodyMaskBits.some(bit => bit === 1)) {
+    // Circuit-aligned: 0 = masked
+    if (bodyMaskBits.some(bit => bit === 0)) {
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
 
@@ -1525,12 +1542,13 @@ export default function EmailCard({
           const htmlSectionStart = bodyStart + textHtmlMarker;
 
           // Build list of masked text segments
+          // Circuit-aligned: 0 = masked
           const maskedSegments: string[] = [];
           let i = 0;
           while (i < bodyMaskBits.length && i < bodyText.length) {
-            if (bodyMaskBits[i] === 1) {
+            if (bodyMaskBits[i] === 0) {
               const segmentStart = i;
-              while (i < bodyMaskBits.length && bodyMaskBits[i] === 1) {
+              while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
                 i++;
               }
               maskedSegments.push(bodyText.slice(segmentStart, i));
@@ -1567,11 +1585,12 @@ export default function EmailCard({
                 const found = searchSection.indexOf(pattern, searchPos);
                 if (found === -1) break;
 
-                // Mark positions in the bits array
+                // Mark positions in the bits array as masked (0)
                 const absolutePos = htmlSectionStart + found;
                 for (let j = 0; j < pattern.length; j++) {
                   if (absolutePos + j < bits.length) {
-                    bits[absolutePos + j] = 1;
+                    // Circuit-aligned: 0 = mask/hide
+                    bits[absolutePos + j] = 0;
                   }
                 }
                 searchPos = found + pattern.length;
