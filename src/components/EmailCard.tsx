@@ -1442,87 +1442,146 @@ export default function EmailCard({
     mapFieldToOriginal(email.time, timeMaskBits, 'time');
     mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
     
-    // For body, try multiple approaches to find it in the EML
-    // 1. Try plain text bodyText first
-    let bodyMapped = false;
-    if (bodyText && bodyMaskBits.length > 0) {
-      const bodyTextMatches = [...originalEml.matchAll(new RegExp(bodyText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))];
-      if (bodyTextMatches.length > 0) {
-        mapFieldToOriginal(bodyText, bodyMaskBits, 'body');
-        bodyMapped = true;
-      }
-    }
-    
-    // 2. If not found, try HTML body content
-    if (!bodyMapped && email.bodyHtml && bodyMaskBits.length > 0) {
-      // Try to find HTML body in EML - look for a substring of the HTML
-      const htmlSubstring = email.bodyHtml.substring(0, Math.min(500, email.bodyHtml.length));
-      const htmlEscaped = htmlSubstring.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const htmlMatches = [...originalEml.matchAll(new RegExp(htmlEscaped, "g"))];
-      
-      if (htmlMatches.length > 0) {
-        const matchStart = htmlMatches[0].index!;
-        
-        // Extract plain text from HTML to map positions
-        // We need to map bodyMaskBits (which is for plain text) to HTML positions
-        if (typeof window !== 'undefined' && window.DOMParser) {
-          try {
-            const parser = new window.DOMParser();
-            const tempDoc = parser.parseFromString(`<div>${email.bodyHtml}</div>`, 'text/html');
-            const tempDiv = tempDoc.querySelector('div');
-            const htmlPlainText = tempDiv?.textContent || '';
-            
-            // Find where bodyText appears in htmlPlainText
-            const bodyTextInHtmlPos = htmlPlainText.indexOf(bodyText);
-            if (bodyTextInHtmlPos >= 0) {
-              // Calculate the offset in the HTML string where the text content starts
-              // This is approximate - we map based on character positions
-              const htmlTextStart = matchStart + bodyTextInHtmlPos;
-              
-              // Map bodyMaskBits to the EML positions
-              // Since we found the HTML, we need to map the plain text positions to HTML positions
-              // This is a simplified approach - map directly if lengths match
-              let bitsMapped = 0;
-              for (let i = 0; i < Math.min(bodyMaskBits.length, bodyText.length); i++) {
-                const emlPos = htmlTextStart + i;
-                if (emlPos < bits.length) {
-                  bits[emlPos] = bodyMaskBits[i] || 0;
-                  if (bodyMaskBits[i] === 1) bitsMapped++;
-                }
-              }
-              bodyMapped = true;
-            }
-          } catch (e) {
-            // Error parsing HTML for body mapping
-          }
-        }
-      }
-    }
-    
-    // 3. If still not found, try to find body content by looking for common email body markers
-    if (!bodyMapped && bodyMaskBits.length > 0) {
-      // Look for common patterns that indicate the start of email body
-      // Try to find "\r\n\r\n" or "\n\n" which often separates headers from body
+    // For body, use segment-based search to find and mask text in raw body
+    // This approach directly searches for each masked text segment rather than relying on position arithmetic
+    // Previous approaches (direct text match, HTML mapping) had offset bugs due to MIME structure and HTML tags
+    if (bodyMaskBits.length > 0 && bodyMaskBits.some(bit => bit === 1)) {
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
-      
+
       if (bodyStart > 0 && bodyStart < originalEml.length) {
-        // Try to map bodyMaskBits starting from bodyStart position
-        // This is a fallback - map the first part of bodyMaskBits
-        const mappingLength = Math.min(bodyMaskBits.length, originalEml.length - bodyStart);
+        const rawBody = originalEml.slice(bodyStart);
         let bitsMapped = 0;
-        for (let i = 0; i < mappingLength; i++) {
-          if (bodyStart + i < bits.length) {
-            bits[bodyStart + i] = bodyMaskBits[i] || 0;
-            if (bodyMaskBits[i] === 1) bitsMapped++;
+
+        // Extract masked text segments from bodyText and search for them in rawBody
+        let i = 0;
+        while (i < bodyMaskBits.length && i < bodyText.length) {
+          if (bodyMaskBits[i] === 1) {
+            // Found start of a masked segment
+            const segmentStart = i;
+            while (i < bodyMaskBits.length && bodyMaskBits[i] === 1) {
+              i++;
+            }
+            const segmentEnd = i;
+
+            // Extract the masked text
+            const maskedText = bodyText.slice(segmentStart, segmentEnd);
+
+            if (maskedText.length > 0) {
+              // Search for this exact text in the raw body
+              let searchPos = 0;
+              while (searchPos < rawBody.length) {
+                const foundPos = rawBody.indexOf(maskedText, searchPos);
+                if (foundPos === -1) break;
+
+                // Mark these positions in the bits array
+                // Note: The zkemail library uses DKIM canonicalized body which may have
+                // positions shifted relative to the raw body (typically by 1 byte).
+                // We adjust by subtracting 1 to compensate for this offset.
+                // If foundPos is 0, we can't shift further back, so we use 0.
+                const adjustedFoundPos = foundPos > 0 ? foundPos - 1 : foundPos;
+                const absolutePos = bodyStart + adjustedFoundPos;
+                for (let j = 0; j < maskedText.length; j++) {
+                  if (absolutePos + j < bits.length) {
+                    bits[absolutePos + j] = 1;
+                    bitsMapped++;
+                  }
+                }
+
+                // Only mask the first occurrence in text/plain section
+                // Check if we're in the text/plain section (before text/html)
+                const textHtmlStart = rawBody.toLowerCase().indexOf('content-type: text/html');
+                if (textHtmlStart === -1 || foundPos < textHtmlStart) {
+                  break; // Found in text/plain section, stop searching
+                }
+
+                searchPos = foundPos + maskedText.length;
+              }
+            }
+          } else {
+            i++;
           }
         }
-        if (bitsMapped > 0) {
-          bodyMapped = true;
+
+      }
+    }
+
+    // 4. Also mask corresponding content in text/html MIME part if present
+    // This ensures sensitive data is masked in both text and HTML representations
+    if (bodyMaskBits.some(bit => bit === 1)) {
+      const bodySeparator = originalEml.indexOf('\r\n\r\n');
+      const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
+
+      if (bodyStart > 0) {
+        const rawBody = originalEml.slice(bodyStart);
+
+        // Check if email uses quoted-printable encoding anywhere
+        const isQuotedPrintable = /Content-Transfer-Encoding:\s*quoted-printable/i.test(rawBody);
+
+        // Find where text/html section starts (after the text/plain section)
+        const textHtmlMarker = rawBody.toLowerCase().indexOf('content-type: text/html');
+        if (textHtmlMarker >= 0) {
+          // Search for masked text in everything after the text/html marker
+          const htmlSectionStart = bodyStart + textHtmlMarker;
+
+          // Build list of masked text segments
+          const maskedSegments: string[] = [];
+          let i = 0;
+          while (i < bodyMaskBits.length && i < bodyText.length) {
+            if (bodyMaskBits[i] === 1) {
+              const segmentStart = i;
+              while (i < bodyMaskBits.length && bodyMaskBits[i] === 1) {
+                i++;
+              }
+              maskedSegments.push(bodyText.slice(segmentStart, i));
+            } else {
+              i++;
+            }
+          }
+
+          // For each masked segment, search and mask in the HTML section
+          for (const maskedText of maskedSegments) {
+            if (maskedText.length === 0) continue;
+
+            // Generate search patterns (original + HTML-encoded)
+            const searchPatterns = [
+              maskedText,
+              maskedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+            ];
+
+            // Also generate soft-break variants for quoted-printable
+            if (isQuotedPrintable) {
+              for (let splitPos = 1; splitPos < maskedText.length; splitPos++) {
+                const before = maskedText.slice(0, splitPos);
+                const after = maskedText.slice(splitPos);
+                searchPatterns.push(before + '=\r\n' + after);
+                searchPatterns.push(before + '=\n' + after);
+              }
+            }
+
+            // Search in the section after text/html marker
+            const searchSection = originalEml.slice(htmlSectionStart);
+            for (const pattern of searchPatterns) {
+              let searchPos = 0;
+              while (searchPos < searchSection.length) {
+                const found = searchSection.indexOf(pattern, searchPos);
+                if (found === -1) break;
+
+                // Mark positions in the bits array
+                const absolutePos = htmlSectionStart + found;
+                for (let j = 0; j < pattern.length; j++) {
+                  if (absolutePos + j < bits.length) {
+                    bits[absolutePos + j] = 1;
+                  }
+                }
+                searchPos = found + pattern.length;
+              }
+            }
+          }
         }
       }
     }
-    
+
     // Store the body mapping position for later extraction
     return {
       eml: originalEml,
