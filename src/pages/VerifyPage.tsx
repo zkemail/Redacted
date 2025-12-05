@@ -74,8 +74,13 @@ export default function VerifyPage() {
           throw new Error('Failed to extract masked data from proof');
         }
 
+        // Debug: log raw header output from proof
+        console.log('[VERIFY] Raw masked header from proof (first 500 chars):', maskedData.maskedHeader.substring(0, 500));
+        console.log('[VERIFY] Full masked header:', maskedData.maskedHeader);
+
         // Parse the masked header into structured fields
         const parsedHeader = parseMaskedHeader(maskedData.maskedHeader);
+        console.log('[VERIFY] Parsed TO value:', parsedHeader.to);
         setMaskedHeader({
           from: parsedHeader.from,
           to: parsedHeader.to,

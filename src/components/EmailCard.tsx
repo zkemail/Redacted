@@ -34,6 +34,7 @@ interface EmailCardProps {
     bodyText: string;
     bodyHtml?: string;
     originalEml?: string; // Original EML file content
+    dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
     ranges?: {
       from?: { rawStart: number; displayOffset: number; displayLength: number };
       to?: { rawStart: number; displayOffset: number; displayLength: number };
@@ -1494,12 +1495,159 @@ export default function EmailCard({
       }
     };
 
-    // Map each field to original EML positions
-    mapFieldToOriginal(email.from, fromMaskBits, 'from');
-    mapFieldToOriginal(email.to, toMaskBits, 'to');
-    mapFieldToOriginal(email.time, timeMaskBits, 'time');
-    mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
-    
+    // Header masking: create a separate mask array for canonicalized headers
+    // The circuit receives canonicalized headers, so the mask must align with those positions
+    const canonicalizedHeaders = email.dkimCanonicalizedHeaders;
+    let canonicalHeaderBits: number[] | null = null;
+
+    if (canonicalizedHeaders) {
+      // Create header mask array sized to canonicalized headers (not original EML)
+      canonicalHeaderBits = new Array(canonicalizedHeaders.length).fill(1);
+
+      // Helper to find the range of a specific header line in canonicalized headers
+      // Returns { start, end } where start is after "fieldname:" and end is before next header
+      // IMPORTANT: Must match header name at line start to avoid matching substrings
+      // (e.g., "to:" should not match inside "reply-to:")
+      const findHeaderLineRange = (headerName: string): { start: number; end: number } | null => {
+        // Canonicalized headers use lowercase header names
+        const headerPrefix = headerName.toLowerCase() + ':';
+
+        // Search for header at start of string or after newline to avoid substring matches
+        let headerStart = -1;
+
+        if (canonicalizedHeaders.startsWith(headerPrefix)) {
+          headerStart = 0;
+        } else {
+          // Search for header after newline
+          const patterns = ['\r\n' + headerPrefix, '\n' + headerPrefix];
+          for (const pattern of patterns) {
+            const pos = canonicalizedHeaders.indexOf(pattern);
+            if (pos >= 0) {
+              headerStart = pos + pattern.length - headerPrefix.length;
+              break;
+            }
+          }
+        }
+
+        if (headerStart < 0) {
+          console.log(`[HEADER RANGE] "${headerName}": prefix "${headerPrefix}" not found in canonicalized headers`);
+          console.log(`[HEADER RANGE] Canonicalized headers (first 500 chars): "${canonicalizedHeaders.substring(0, 500)}"`);
+          return null;
+        }
+
+        // Start of value is after the colon
+        const valueStart = headerStart + headerPrefix.length;
+
+        // End is at the next line break (\r\n or \n) or end of headers
+        let valueEnd = canonicalizedHeaders.indexOf('\r\n', valueStart);
+        if (valueEnd < 0) {
+          // Try just \n (some systems use LF only)
+          valueEnd = canonicalizedHeaders.indexOf('\n', valueStart);
+        }
+        if (valueEnd < 0) {
+          valueEnd = canonicalizedHeaders.length;
+        }
+
+        console.log(`[HEADER RANGE] "${headerName}": found at positions ${valueStart}-${valueEnd}`);
+        return { start: valueStart, end: valueEnd };
+      };
+
+      // Text-search approach: find the exact field value in the header line, then apply mask bits
+      const mapHeaderFieldMask = (fieldValue: string, fieldBits: number[], fieldName: string) => {
+        if (!fieldValue || fieldBits.length === 0 || !canonicalHeaderBits) return;
+        if (!fieldBits.some(bit => bit === 0)) return; // No masking needed
+
+        // Map field name to header name
+        let headerName = fieldName;
+        if (fieldName === 'time') headerName = 'date';
+
+        // Find the range of this specific header line
+        const headerRange = findHeaderLineRange(headerName);
+        if (!headerRange) {
+          console.warn(`[HEADER MASK] ${fieldName}: header line "${headerName}:" not found in canonicalized headers`);
+          return;
+        }
+
+        // Get the header line content for searching
+        const headerLineContent = canonicalizedHeaders.slice(headerRange.start, headerRange.end);
+        console.log(`[HEADER MASK] ${fieldName}: header line content: "${headerLineContent}"`);
+        console.log(`[HEADER MASK] ${fieldName}: field value to find: "${fieldValue}"`);
+
+        // Robust search: try multiple strategies to find the field value
+        let fieldValuePos = -1;
+        let actualValueInHeader = fieldValue;
+
+        // Strategy 1: Exact match
+        fieldValuePos = headerLineContent.indexOf(fieldValue);
+
+        // Strategy 2: Case-insensitive match (for email addresses)
+        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
+          const lowerHeaderContent = headerLineContent.toLowerCase();
+          const lowerFieldValue = fieldValue.toLowerCase();
+          const lowerPos = lowerHeaderContent.indexOf(lowerFieldValue);
+          if (lowerPos >= 0) {
+            // Found case-insensitive match - use the original position
+            fieldValuePos = lowerPos;
+            // Get the actual value from the header (with original case)
+            actualValueInHeader = headerLineContent.slice(lowerPos, lowerPos + fieldValue.length);
+            console.log(`[HEADER MASK] ${fieldName}: found via case-insensitive search at offset ${lowerPos}`);
+          }
+        }
+
+        // Strategy 3: Search for email within angle brackets
+        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
+          // Look for <email@domain.com> pattern
+          const angleBracketStart = headerLineContent.indexOf('<');
+          const angleBracketEnd = angleBracketStart >= 0 ? headerLineContent.indexOf('>', angleBracketStart) : -1;
+          if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
+            const emailInBrackets = headerLineContent.slice(angleBracketStart + 1, angleBracketEnd);
+            // Case-insensitive comparison for email
+            if (emailInBrackets.toLowerCase() === fieldValue.toLowerCase()) {
+              fieldValuePos = angleBracketStart + 1;
+              actualValueInHeader = emailInBrackets;
+              console.log(`[HEADER MASK] ${fieldName}: found inside angle brackets at offset ${fieldValuePos}`);
+            }
+          }
+        }
+
+        if (fieldValuePos < 0) {
+          console.warn(`[HEADER MASK] ${fieldName}: field value "${fieldValue}" not found in header line using any strategy`);
+          return;
+        }
+
+        console.log(`[HEADER MASK] ${fieldName}: found field value at line offset ${fieldValuePos}, actual value: "${actualValueInHeader}"`);
+
+        // Apply mask bits directly at the field value position
+        // fieldBits[i] corresponds to fieldValue[i], which is at headerLineContent[fieldValuePos + i]
+        const absoluteFieldStart = headerRange.start + fieldValuePos;
+
+        for (let i = 0; i < Math.min(fieldBits.length, actualValueInHeader.length); i++) {
+          if (fieldBits[i] === 0) {
+            const absolutePos = absoluteFieldStart + i;
+            if (absolutePos < canonicalHeaderBits.length) {
+              canonicalHeaderBits[absolutePos] = 0;
+            }
+          }
+        }
+
+        const maskedCount = fieldBits.filter(b => b === 0).length;
+        console.log(`[HEADER MASK] ${fieldName}: applied ${maskedCount} masked bits starting at position ${absoluteFieldStart}`);
+      };
+
+      // Map each header field using text-search in canonicalized headers
+      mapHeaderFieldMask(email.from, fromMaskBits, 'from');
+      mapHeaderFieldMask(email.to, toMaskBits, 'to');
+      mapHeaderFieldMask(email.time, timeMaskBits, 'time');
+      mapHeaderFieldMask(email.subject, subjectMaskBits, 'subject');
+    } else {
+      // Fallback to position-based approach if no canonicalized headers available
+      console.warn('[HEADER MASK] No canonicalized headers available, falling back to position-based mapping');
+      mapFieldToOriginal(email.from, fromMaskBits, 'from');
+      mapFieldToOriginal(email.to, toMaskBits, 'to');
+      mapFieldToOriginal(email.time, timeMaskBits, 'time');
+      mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
+    }
+
     // For body, use segment-based search to find and mask text in raw body
     // This approach directly searches for each masked text segment rather than relying on position arithmetic
     // Previous approaches (direct text match, HTML mapping) had offset bugs due to MIME structure and HTML tags
@@ -1683,9 +1831,11 @@ export default function EmailCard({
       eml: originalEml,
       bits,
       mask: bits.join(""),
+      canonicalHeaderBits, // Separate header mask for canonicalized headers (null if not available)
     };
   }, [
     email.originalEml,
+    email.dkimCanonicalizedHeaders,
     email.from,
     email.to,
     email.time,
@@ -1720,11 +1870,20 @@ export default function EmailCard({
       }
     }
 
-    // Extract header mask: everything before the body
-    // If bodyStart is invalid, use all bits as header (fallback)
-    const headerMask = bodyStart > 0 && bodyStart < allBits.length
-      ? allBits.slice(0, bodyStart)
-      : allBits;
+    // Header mask: use canonicalHeaderBits if available (for DKIM-canonicalized headers)
+    // Otherwise fall back to extracting from the combined bits array
+    let headerMask: number[];
+    if (aggregatedMask.canonicalHeaderBits) {
+      // Use the separate header mask that's aligned with canonicalized headers
+      headerMask = aggregatedMask.canonicalHeaderBits;
+      console.log(`[MASK] Using canonicalHeaderBits for header mask (length: ${headerMask.length})`);
+    } else {
+      // Fallback: extract from combined bits (legacy behavior)
+      headerMask = bodyStart > 0 && bodyStart < allBits.length
+        ? allBits.slice(0, bodyStart)
+        : allBits;
+      console.log(`[MASK] Using fallback header mask from bits (length: ${headerMask.length})`);
+    }
 
     // Extract body mask: everything from body start to end
     // If bodyStart is invalid, use empty array (fallback)

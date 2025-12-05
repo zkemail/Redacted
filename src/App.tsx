@@ -20,6 +20,7 @@ interface EmailState {
   bodyText: string;
   bodyHtml?: string;
   originalEml?: string; // Store original EML file content
+  dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
 }
 
 export default function MainApp() {
@@ -68,6 +69,7 @@ export default function MainApp() {
       bodyText: parsedEmail.bodyText || parsedEmail.body || "",
       bodyHtml: parsedEmail.bodyHtml,
       originalEml, // Store original EML content
+      dkimCanonicalizedHeaders: parsedEmail.dkimCanonicalizedHeaders, // DKIM-canonicalized headers
     });
     // Reset masked fields when new email is loaded
     setMaskedFields(new Set());

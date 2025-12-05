@@ -1,4 +1,5 @@
 import PostalMime, { type Address } from 'postal-mime';
+import { verifyDKIMSignature } from '@zk-email/zkemail-nr';
 
 export interface EmailFieldRange {
   rawStart: number;
@@ -30,6 +31,8 @@ export interface ParsedEmail {
   canonicalizedHeaders?: string;
   canonicalizedBody?: string;
   minimalEmlContent?: string;
+  // Actual DKIM-canonicalized headers from verifyDKIMSignature
+  dkimCanonicalizedHeaders?: string;
 }
 
 /**
@@ -60,6 +63,53 @@ const getAddressFromEntry = (entry?: Address): string => {
 const getFirstAddress = (entries?: Address[]): string => {
   if (!entries || entries.length === 0) return '';
   return getAddressFromEntry(entries[0]);
+};
+
+/**
+ * Extracts the full header value from DKIM-canonicalized headers.
+ * Canonicalized headers have lowercase header names and format: "headername:value"
+ * Returns the full value (e.g., "Yogesh Shahi <notifications@github.com>")
+ *
+ * IMPORTANT: Must match header name at line start to avoid matching substrings
+ * (e.g., "to:" should not match inside "reply-to:")
+ */
+const getHeaderValueFromCanonicalizedHeaders = (canonicalizedHeaders: string, headerName: string): string | null => {
+  const headerPrefix = headerName.toLowerCase() + ':';
+
+  // Search for header at start of string or after newline to avoid substring matches
+  // (e.g., "to:" should not match "reply-to:")
+  let headerStart = -1;
+
+  // Check if at start of string
+  if (canonicalizedHeaders.startsWith(headerPrefix)) {
+    headerStart = 0;
+  } else {
+    // Search for header after newline
+    const patterns = ['\r\n' + headerPrefix, '\n' + headerPrefix];
+    for (const pattern of patterns) {
+      const pos = canonicalizedHeaders.indexOf(pattern);
+      if (pos >= 0) {
+        headerStart = pos + pattern.length - headerPrefix.length;
+        break;
+      }
+    }
+  }
+
+  if (headerStart < 0) return null;
+
+  const valueStart = headerStart + headerPrefix.length;
+
+  // Find end of header (next \r\n or \n or end of string)
+  let valueEnd = canonicalizedHeaders.indexOf('\r\n', valueStart);
+  if (valueEnd < 0) {
+    valueEnd = canonicalizedHeaders.indexOf('\n', valueStart);
+  }
+  if (valueEnd < 0) {
+    valueEnd = canonicalizedHeaders.length;
+  }
+
+  // Return trimmed value (canonicalization removes leading/trailing whitespace)
+  return canonicalizedHeaders.slice(valueStart, valueEnd).trim();
 };
 
 export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
@@ -131,24 +181,57 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   let canonicalizedHeaders: string | undefined;
   let canonicalizedBody: string | undefined;
   let minimalEmlContent: string | undefined;
+  let dkimCanonicalizedHeaders: string | undefined;
+
+  // Get actual DKIM-canonicalized headers for accurate header masking
+  try {
+    const dkimResult = await verifyDKIMSignature(emlContent, undefined, undefined, true);
+    // Convert Buffer to string for storage
+    dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');
+    console.log('[DKIM] Got canonicalized headers:', dkimCanonicalizedHeaders?.substring(0, 200));
+  } catch (error) {
+    console.warn('[DKIM] Verification failed during parsing:', error);
+    // Continue without canonicalized headers - will fall back to position-based mapping
+  }
 
   try {
     parsedEmail = await parser.parse(emlContent);
 
-    // Extract TO, FROM, SUBJECT values
-    from = getAddressFromEntry(parsedEmail?.from);
-    to = getFirstAddress(parsedEmail?.to);
-    subject = parsedEmail?.subject || '';
+    // IMPORTANT: For masking to work, UI must display values from DKIM-canonicalized headers
+    // because that's what the circuit verifies. Extract FROM, TO, SUBJECT from canonicalized headers first.
+    if (dkimCanonicalizedHeaders) {
+      const canonicalFrom = getHeaderValueFromCanonicalizedHeaders(dkimCanonicalizedHeaders, 'from');
+      const canonicalTo = getHeaderValueFromCanonicalizedHeaders(dkimCanonicalizedHeaders, 'to');
+      const canonicalSubject = getHeaderValueFromCanonicalizedHeaders(dkimCanonicalizedHeaders, 'subject');
+
+      if (canonicalFrom) {
+        from = canonicalFrom;
+        console.log('[DKIM] Using FROM from canonicalized headers:', from);
+      }
+      if (canonicalTo) {
+        to = canonicalTo;
+        console.log('[DKIM] Using TO from canonicalized headers:', to);
+      }
+      if (canonicalSubject) {
+        subject = canonicalSubject;
+        console.log('[DKIM] Using SUBJECT from canonicalized headers:', subject);
+      }
+    }
+
+    // Fall back to PostalMime values if not found in canonicalized headers
+    if (!from) from = getAddressFromEntry(parsedEmail?.from);
+    if (!to) to = getFirstAddress(parsedEmail?.to);
+    if (!subject) subject = parsedEmail?.subject || '';
 
     if (!from || !to || !subject) {
-      // Fallback to regex if values are not present in parsedEmail
+      // Final fallback to regex if values are not present
       const fromMatch = emlContent.match(/^From:\s.*<([^>]+)>/m);
       const toMatch = emlContent.match(/^\s*(?:To|Delivered-To):\s*(?:.*?<([^>]+)>|(.+))/m);
       const subjectMatch = emlContent.match(/^Subject:\s*(.*)/m);
 
-      from = fromMatch ? fromMatch[1] : extractDisplayValue(fromRange).trim() || 'Unknown';
-      to = toMatch ? (toMatch[1] || toMatch[2]) : extractDisplayValue(toRange).trim() || 'Unknown';
-      subject = subjectMatch ? subjectMatch[1] : extractDisplayValue(subjectRange).trim() || 'Unknown';
+      if (!from) from = fromMatch ? fromMatch[1] : extractDisplayValue(fromRange).trim() || 'Unknown';
+      if (!to) to = toMatch ? (toMatch[1] || toMatch[2]) : extractDisplayValue(toRange).trim() || 'Unknown';
+      if (!subject) subject = subjectMatch ? subjectMatch[1] : extractDisplayValue(subjectRange).trim() || 'Unknown';
     }
 
     // Process the email body for UI display
@@ -243,6 +326,7 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
     canonicalizedHeaders: canonicalizedHeaders || undefined,
     canonicalizedBody: canonicalizedBody || undefined,
     minimalEmlContent: minimalEmlContent || undefined,
+    dkimCanonicalizedHeaders: dkimCanonicalizedHeaders || undefined,
   };
 }
 
