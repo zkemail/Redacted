@@ -1224,6 +1224,51 @@ export default function EmailCard({
     clearSelectionState();
   }, [currentSelection, bodyText, bodyMaskBits.length, fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, email.from.length, email.to.length, email.time.length, email.subject.length, saveToHistory, clearSelectionState]);
 
+  /**
+   * Removes all soft line breaks (=\r\n and =\n) from text while maintaining
+   * a position map from cleaned positions back to original positions.
+   *
+   * @param text - The text to clean
+   * @returns Object with cleaned text and position map
+   */
+  function removeAllSoftLineBreaks(text: string): {
+    cleaned: string;
+    positionMap: Map<number, number>; // cleaned position -> original position
+  } {
+    const positionMap = new Map<number, number>();
+    let cleaned = '';
+    let originalPos = 0;
+    let cleanedPos = 0;
+
+    while (originalPos < text.length) {
+      // Check for =\r\n soft break (3 chars)
+      if (
+        originalPos + 2 < text.length &&
+        text[originalPos] === '=' &&
+        text[originalPos + 1] === '\r' &&
+        text[originalPos + 2] === '\n'
+      ) {
+        originalPos += 3; // Skip the soft line break
+      }
+      // Check for =\n soft break (2 chars)
+      else if (
+        originalPos + 1 < text.length &&
+        text[originalPos] === '=' &&
+        text[originalPos + 1] === '\n'
+      ) {
+        originalPos += 2; // Skip the soft line break
+      }
+      else {
+        positionMap.set(cleanedPos, originalPos);
+        cleaned += text[originalPos];
+        cleanedPos++;
+        originalPos++;
+      }
+    }
+
+    return { cleaned, positionMap };
+  }
+
   // Map mask bits to original EML file positions
   const aggregatedMask = useMemo(() => {
     if (!email.originalEml) {
@@ -1558,42 +1603,74 @@ export default function EmailCard({
           }
 
           // For each masked segment, search and mask in the HTML section
+          // Use clean-then-search approach to handle multiple soft line breaks
+          const searchSection = originalEml.slice(htmlSectionStart);
+
           for (const maskedText of maskedSegments) {
             if (maskedText.length === 0) continue;
 
-            // Generate search patterns (original + HTML-encoded)
-            const searchPatterns = [
+            // Generate search variants: original and HTML-encoded
+            const searchVariants = [
               maskedText,
               maskedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
             ];
 
-            // Also generate soft-break variants for quoted-printable
-            if (isQuotedPrintable) {
-              for (let splitPos = 1; splitPos < maskedText.length; splitPos++) {
-                const before = maskedText.slice(0, splitPos);
-                const after = maskedText.slice(splitPos);
-                searchPatterns.push(before + '=\r\n' + after);
-                searchPatterns.push(before + '=\n' + after);
-              }
-            }
+            for (const variant of searchVariants) {
+              if (isQuotedPrintable) {
+                // Clean-then-search approach: remove soft breaks and use position mapping
+                const { cleaned: cleanedSection, positionMap } = removeAllSoftLineBreaks(searchSection);
+                const cleanedVariant = removeAllSoftLineBreaks(variant).cleaned;
 
-            // Search in the section after text/html marker
-            const searchSection = originalEml.slice(htmlSectionStart);
-            for (const pattern of searchPatterns) {
-              let searchPos = 0;
-              while (searchPos < searchSection.length) {
-                const found = searchSection.indexOf(pattern, searchPos);
-                if (found === -1) break;
+                // Search in cleaned content
+                let searchPos = 0;
+                while (searchPos < cleanedSection.length) {
+                  const foundInCleaned = cleanedSection.indexOf(cleanedVariant, searchPos);
+                  if (foundInCleaned === -1) break;
 
-                // Mark positions in the bits array as masked (0)
-                const absolutePos = htmlSectionStart + found;
-                for (let j = 0; j < pattern.length; j++) {
-                  if (absolutePos + j < bits.length) {
-                    // Circuit-aligned: 0 = mask/hide
-                    bits[absolutePos + j] = 0;
+                  // Map back to original positions and apply -2 offset for HTML section
+                  // Offset breakdown:
+                  //   -1 for DKIM canonicalization (same as text/plain)
+                  //   -1 for MIME blank line after Content-Type header
+                  const originalStart = positionMap.get(foundInCleaned);
+                  if (originalStart !== undefined) {
+                    // Calculate how many original bytes this match spans
+                    // (may be more than cleanedVariant.length due to soft breaks)
+                    const originalEnd = positionMap.get(foundInCleaned + cleanedVariant.length - 1);
+                    const matchLength = originalEnd !== undefined
+                      ? originalEnd - originalStart + 1
+                      : cleanedVariant.length;
+
+                    // Apply -2 offset for HTML section
+                    const adjustedStart = originalStart > 1 ? originalStart - 2 : Math.max(0, originalStart);
+                    const absolutePos = htmlSectionStart + adjustedStart;
+
+                    for (let j = 0; j < matchLength; j++) {
+                      if (absolutePos + j >= 0 && absolutePos + j < bits.length) {
+                        bits[absolutePos + j] = 0; // Circuit-aligned: 0 = mask/hide
+                      }
+                    }
                   }
+
+                  searchPos = foundInCleaned + cleanedVariant.length;
                 }
-                searchPos = found + pattern.length;
+              } else {
+                // Non-quoted-printable: direct search with -2 offset
+                let searchPos = 0;
+                while (searchPos < searchSection.length) {
+                  const found = searchSection.indexOf(variant, searchPos);
+                  if (found === -1) break;
+
+                  // Apply -2 offset for HTML section
+                  const adjustedFound = found > 1 ? found - 2 : Math.max(0, found);
+                  const absolutePos = htmlSectionStart + adjustedFound;
+
+                  for (let j = 0; j < variant.length; j++) {
+                    if (absolutePos + j >= 0 && absolutePos + j < bits.length) {
+                      bits[absolutePos + j] = 0; // Circuit-aligned: 0 = mask/hide
+                    }
+                  }
+                  searchPos = found + variant.length;
+                }
               }
             }
           }

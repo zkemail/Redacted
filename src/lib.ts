@@ -113,9 +113,6 @@ export const handleGenerateProof = async (
       maxBodyLength: circuitConfig.maxBodyLength,
     };
 
-    // Frontend now uses circuit-aligned semantics: 0=hide/mask, 1=reveal/keep
-    // No inversion needed - pass masks directly
-
     // Pad arrays with 1s (reveal) if shorter than required lengths, or slice if longer
     // Padding bytes should be revealed (kept), not hidden
     const paddedHeaderMask = headerMask.length < circuitConfig.maxHeaderLength
