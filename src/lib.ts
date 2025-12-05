@@ -6,7 +6,11 @@ import initACVM from "@noir-lang/acvm_js";
 import acvm from "@noir-lang/acvm_js/web/acvm_js_bg.wasm?url";
 import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 // import circuit from "./circuit/target/circuit.json";
-import { generateEmailVerifierInputs } from "@zk-email/zkemail-nr";
+import {
+  generateEmailVerifierInputs,
+  generateEmailVerifierInputsFromDKIMResult,
+} from "@zk-email/zkemail-nr";
+import type { DKIMResult } from "./utils/emlParser";
 import circuitEmailMaskJson from "./circuit/target/email_mask.json";
 import circuitEmailMaskMidJson from "./circuit/target/email_mask_mid.json";
 import circuitEmailMaskLargeJson from "./circuit/target/email_mask_large.json";
@@ -81,6 +85,7 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
  * @param email - The original email content (EML format)
  * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (0 = mask/hide, 1 = reveal)
  * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (0 = mask/hide, 1 = reveal)
+ * @param existingDkimResult - Optional pre-verified DKIM result to avoid double verification (Phase 2 optimization)
  * @returns ProofData containing the proof and public inputs, or null if generation failed
  *
  * IMPORTANT: The returned proof does NOT contain the original email.
@@ -93,7 +98,8 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
 export const handleGenerateProof = async (
   email: string,
   headerMask: number[],
-  bodyMask: number[]
+  bodyMask: number[],
+  existingDkimResult?: DKIMResult
 ) => {
   try {
 
@@ -104,7 +110,7 @@ export const handleGenerateProof = async (
     // Select circuit based on actual mask lengths (before padding)
     const circuitConfig = selectCircuit(headerMask.length, bodyMask.length);
     const selectedCircuit = circuitConfig.circuit;
-    
+
     const noir = new Noir(selectedCircuit);
     const backend = new UltraHonkBackend(selectedCircuit.bytecode);
 
@@ -122,11 +128,24 @@ export const handleGenerateProof = async (
       ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(1)]
       : bodyMask.slice(0, circuitConfig.maxBodyLength);
 
-    const inputs = await generateEmailVerifierInputs(email, {
-      headerMask: paddedHeaderMask,
-      bodyMask: paddedBodyMask,
-      ...inputParams,
-    });
+    // Use two-step approach if DKIM result is available (Phase 2 optimization)
+    // This avoids running DKIM verification twice (once during parsing, once during proof generation)
+    let inputs;
+    if (existingDkimResult) {
+      console.log("[PROOF] Using existing DKIM result (no double verification)");
+      inputs = await generateEmailVerifierInputsFromDKIMResult(existingDkimResult, {
+        headerMask: paddedHeaderMask,
+        bodyMask: paddedBodyMask,
+        ...inputParams,
+      });
+    } else {
+      console.log("[PROOF] No existing DKIM result, running full verification");
+      inputs = await generateEmailVerifierInputs(email, {
+        headerMask: paddedHeaderMask,
+        bodyMask: paddedBodyMask,
+        ...inputParams,
+      });
+    }
     // generate witness
     const { witness } = await noir.execute(inputs);
 

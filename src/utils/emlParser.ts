@@ -8,6 +8,9 @@ export interface EmailFieldRange {
   displayLength: number;
 }
 
+// Type for DKIM verification result from the SDK
+export type DKIMResult = Awaited<ReturnType<typeof verifyDKIMSignature>>;
+
 export interface ParsedEmail {
   from: string;
   to: string;
@@ -33,6 +36,8 @@ export interface ParsedEmail {
   minimalEmlContent?: string;
   // Actual DKIM-canonicalized headers from verifyDKIMSignature
   dkimCanonicalizedHeaders?: string;
+  // Full DKIM verification result for reuse during proof generation (Phase 2 optimization)
+  dkimResult?: DKIMResult;
 }
 
 /**
@@ -182,10 +187,12 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   let canonicalizedBody: string | undefined;
   let minimalEmlContent: string | undefined;
   let dkimCanonicalizedHeaders: string | undefined;
+  let dkimResult: DKIMResult | undefined;
 
   // Get actual DKIM-canonicalized headers for accurate header masking
+  // Also store full DKIM result to reuse during proof generation (Phase 2 optimization)
   try {
-    const dkimResult = await verifyDKIMSignature(emlContent, undefined, undefined, true);
+    dkimResult = await verifyDKIMSignature(emlContent, undefined, undefined, true);
     // Convert Buffer to string for storage
     dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');
     console.log('[DKIM] Got canonicalized headers:', dkimCanonicalizedHeaders?.substring(0, 200));
@@ -327,6 +334,7 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
     canonicalizedBody: canonicalizedBody || undefined,
     minimalEmlContent: minimalEmlContent || undefined,
     dkimCanonicalizedHeaders: dkimCanonicalizedHeaders || undefined,
+    dkimResult: dkimResult || undefined,
   };
 }
 

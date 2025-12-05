@@ -6,7 +6,7 @@ import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
-import { type ParsedEmail } from "./utils/emlParser";
+import { type ParsedEmail, type DKIMResult } from "./utils/emlParser";
 import { handleGenerateProof } from "./lib";
 import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
@@ -21,6 +21,7 @@ interface EmailState {
   bodyHtml?: string;
   originalEml?: string; // Store original EML file content
   dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
+  dkimResult?: DKIMResult; // Full DKIM result for reuse during proof generation (Phase 2 optimization)
 }
 
 export default function MainApp() {
@@ -70,6 +71,7 @@ export default function MainApp() {
       bodyHtml: parsedEmail.bodyHtml,
       originalEml, // Store original EML content
       dkimCanonicalizedHeaders: parsedEmail.dkimCanonicalizedHeaders, // DKIM-canonicalized headers
+      dkimResult: parsedEmail.dkimResult, // Full DKIM result for proof generation (Phase 2 optimization)
     });
     // Reset masked fields when new email is loaded
     setMaskedFields(new Set());
@@ -107,11 +109,12 @@ export default function MainApp() {
 
   const handleVerify = async () => {
     if (!email.originalEml) return;
-    
+
     setIsGeneratingProof(true);
     setVerificationUrl(null);
     try {
-      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask) as ProofData | undefined;
+      // Pass existing DKIM result to avoid double verification (Phase 2 optimization)
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask, email.dkimResult) as ProofData | undefined;
       
       // Proof generated successfully
       if (!proof) {
