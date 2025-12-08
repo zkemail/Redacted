@@ -131,12 +131,13 @@ export default function BeforeAfterSlider({
 
           {/* Slider Handle - vertical line */}
           <div
-            className="absolute top-0 bottom-0 w-[0px] cursor-ew-resize z-10"
+            className="absolute top-0 bottom-0 cursor-ew-resize z-10"
             style={{ 
               left: `${sliderPosition}%`, 
-              transform: 'translateX(-50%)',
               borderLeft: '2px solid #6D99CECC',
-              boxShadow: '24px 0px 48px 10px #99C8FF'
+              transform: 'translateX(-0%)',
+              width: '54px',
+              background: 'linear-gradient(270deg, rgba(255, 255, 255, 0) 0%, rgba(153, 200, 255, 0.4) 100%)'
             }}
             onMouseDown={handleMouseDown}
             onTouchStart={handleMouseDown}
