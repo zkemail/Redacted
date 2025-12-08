@@ -50,6 +50,13 @@ export default function MainApp() {
   const [canRedo, setCanRedo] = useState(false);
   const [isGeneratingProof, setIsGeneratingProof] = useState(false);
   const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [generatedProof, setGeneratedProof] = useState<ProofData | null>(null);
+  const [isVerifyingProof, setIsVerifyingProof] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<{
+    verified: boolean;
+    message: string;
+  } | null>(null);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -77,6 +84,10 @@ export default function MainApp() {
     });
     // Reset masked fields when new email is loaded
     setMaskedFields(new Set());
+    // Reset proof-related state
+    setVerificationUrl(null);
+    setGeneratedProof(null);
+    setVerificationStatus(null);
   };
 
   const handleResetChanges = () => {
@@ -114,6 +125,8 @@ export default function MainApp() {
 
     setIsGeneratingProof(true);
     setVerificationUrl(null);
+    setGeneratedProof(null);
+    setVerificationStatus(null);
     try {
       // Pass existing DKIM result to avoid double verification (Phase 2 optimization)
       const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask, email.dkimResult) as ProofData | undefined;
@@ -123,8 +136,10 @@ export default function MainApp() {
         throw new Error("Proof generation failed");
       }
       
-      // Upload proof to Google Cloud Storage after proof is generated
-      // Note: EML upload removed - verification now uses proof outputs directly
+      // Store the proof for verification
+      setGeneratedProof(proof);
+      
+      // Upload EML file and proof to Google Cloud Storage after proof is generated
       if (proof) {
         try {
           // Step 1: Generate a UUID for this proof
@@ -133,13 +148,7 @@ export default function MainApp() {
           // Step 2: Generate shareable verification URL (stores proof on server, returns short URL)
           const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
           setVerificationUrl(shareableUrl);
-
-          // Copy to clipboard
-          try {
-            await navigator.clipboard.writeText(shareableUrl);
-          } catch (clipboardError) {
-            console.warn("Failed to copy to clipboard:", clipboardError);
-          }
+          // Don't auto-open the modal - user will click "Share Link" button to open it
         } catch (uploadError) {
           console.error("Error uploading proof to GCS:", uploadError);
           // Don't fail the entire operation if upload fails
@@ -152,6 +161,43 @@ export default function MainApp() {
     }
   };
 
+  const handleVerifyProof = async () => {
+    if (!generatedProof) {
+      setVerificationStatus({
+        verified: false,
+        message: "No proof available to verify",
+      });
+      return;
+    }
+
+    setIsVerifyingProof(true);
+    setVerificationStatus(null);
+    
+    try {
+      const isValid = await verifyProof(generatedProof);
+      
+      if (isValid) {
+        setVerificationStatus({
+          verified: true,
+          message: "✅ Proof verified successfully! The email content is authentic.",
+        });
+      } else {
+        setVerificationStatus({
+          verified: false,
+          message: "❌ Proof verification failed. The proof may be invalid or corrupted.",
+        });
+      }
+    } catch (error) {
+      console.error("Error verifying proof:", error);
+      setVerificationStatus({
+        verified: false,
+        message: "❌ Error verifying proof. Please try again.",
+      });
+    } finally {
+      setIsVerifyingProof(false);
+    }
+  };
+
   useEffect(() => {
     setIsUploadModalOpen(true)
   }, []);
@@ -161,9 +207,29 @@ export default function MainApp() {
       <Header
         onChangeEmail={() => setIsUploadModalOpen(true)}
         onResetChanges={handleResetChanges}
+        showShareLink={verificationUrl !== null}
+        onShareLink={() => setShowVerificationModal(true)}
       />
 
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
+        {/* Verification Status Banner */}
+        {verificationStatus && (
+          <div
+            className={`mb-6 p-4 rounded-lg ${
+              verificationStatus.verified
+                ? "bg-green-50 border border-green-200"
+                : "bg-red-50 border border-red-200"
+            }`}
+          >
+            <p
+              className={`text-center font-medium ${
+                verificationStatus.verified ? "text-green-800" : "text-red-800"
+              }`}
+            >
+              {verificationStatus.message}
+            </p>
+          </div>
+        )}
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
           email={{
@@ -197,6 +263,7 @@ export default function MainApp() {
           onUndoRedoHandlersReady={handleUndoRedoHandlersReady}
           onUndoRedoStateChange={handleUndoRedoStateChange}
           onMaskChange={handleMaskChange}
+          disableSelectionMasking={verificationUrl !== null}
         />
       </main>
 
@@ -207,6 +274,9 @@ export default function MainApp() {
         canRedo={canRedo}
         onVerify={handleVerify}
         isGeneratingProof={isGeneratingProof}
+        showVerifyProof={verificationUrl !== null}
+        onVerifyProof={handleVerifyProof}
+        isVerifyingProof={isVerifyingProof}
       />
 
       <UploadModal
@@ -216,8 +286,8 @@ export default function MainApp() {
       />
 
       <VerificationUrlModal
-        isOpen={verificationUrl !== null}
-        onClose={() => setVerificationUrl(null)}
+        isOpen={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
         verificationUrl={verificationUrl || ""}
       />
     </div>
