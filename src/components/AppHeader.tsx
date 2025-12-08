@@ -62,12 +62,12 @@ export default function Header({
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
         <div 
-          className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-2 items-center cursor-pointer"
+          className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-3 items-center cursor-pointer"
           onClick={() => navigate("/")}
         >
           <img
             src={WhistleblowerLogo}
-            height={16}
+            height={20}
             width={104}
             alt="Whistleblow Logo"
           />
@@ -125,14 +125,14 @@ export default function Header({
 
       {/* Desktop Header */}
       <div className="hidden md:block">
-        <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-2 items-center">
+        <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-3 items-center">
           <div 
             className="cursor-pointer"
             onClick={() => navigate("/")}
           >
             <img
               src={WhistleblowerLogo}
-              height={16}
+              height={20}
               width={104}
               alt="Whistleblow Logo"
             />
