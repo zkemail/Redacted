@@ -1,7 +1,8 @@
-'use client';
+"use client";
 
-import { useCallback, useState } from 'react';
-import { parseEmlFile, type ParsedEmail } from '../utils/emlParser';
+import { useCallback, useState } from "react";
+import { parseEmlFile, type ParsedEmail } from "../utils/emlParser";
+import EMLUploadIcon from "../assets/EMLUploadIcon.svg";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -9,48 +10,63 @@ interface UploadModalProps {
   onEmailParsed: (email: ParsedEmail, originalEml: string) => void;
 }
 
-export default function UploadModal({ isOpen, onClose, onEmailParsed }: UploadModalProps) {
+export default function UploadModal({
+  isOpen,
+  onClose,
+  onEmailParsed,
+}: UploadModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.name.endsWith('.eml')) {
-      setError('Please upload a valid .eml file');
-      return;
-    }
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (!file.name.endsWith(".eml")) {
+        setError("Please upload a valid .eml file");
+        return;
+      }
 
-    setIsProcessing(true);
-    setError(null);
+      setIsProcessing(true);
+      setError(null);
 
-    try {
-      const text = await file.text();
-      const parsedEmail = await parseEmlFile(text);
-      onEmailParsed(parsedEmail, text); // Pass original EML content
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse email file');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [onEmailParsed, onClose]);
+      try {
+        const text = await file.text();
+        const parsedEmail = await parseEmlFile(text);
+        onEmailParsed(parsedEmail, text); // Pass original EML content
+        onClose();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to parse email file"
+        );
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [onEmailParsed, onClose]
+  );
 
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFile(file);
-    }
-  }, [handleFile]);
+  const handleFileInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        handleFile(file);
+      }
+    },
+    [handleFile]
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      handleFile(file);
-    }
-  }, [handleFile]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragging(false);
+
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        handleFile(file);
+      }
+    },
+    [handleFile]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -65,16 +81,19 @@ export default function UploadModal({ isOpen, onClose, onEmailParsed }: UploadMo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#141517] border border-[#222325] rounded-3xl p-6 md:p-8 w-full max-w-md mx-4 shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-white text-xl font-bold">Upload Email File</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(77,77,77,0.61)] backdrop-blur-[1px] px-4">
+      <div className="w-full max-w-[480px] rounded-2xl bg-white p-4 md:p-5 shadow-[0_2px_4px_rgba(0,0,0,0.08),0_8px_16px_rgba(0,0,0,0.15)]">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-[16px] font-semibold text-[#111314]">
+            Upload Email File
+          </h2>
           <button
             onClick={onClose}
-            className="text-[#9ca3af] hover:text-white transition-colors"
+            className="flex size-8 items-center justify-center rounded-full border border-[#e2e2e2] text-[#9ca3af] transition-colors hover:text-[#111314]"
             disabled={isProcessing}
+            aria-label="Close upload modal"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
               <path
                 d="M18 6L6 18M6 6l12 12"
                 stroke="currentColor"
@@ -90,11 +109,13 @@ export default function UploadModal({ isOpen, onClose, onEmailParsed }: UploadMo
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+          className={`w-full rounded-2xl border border-dashed bg-[#fdfdfd] px-6 py-12 text-center transition-colors ${
             isDragging
-              ? 'border-[#5e6ad2] bg-[#5e6ad2]/10'
-              : 'border-[#374151] hover:border-[#5e6ad2]/50'
-          } ${isProcessing ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+              ? "border-[#206ac2] bg-[#f3f8ff]"
+              : "border-[#e2e2e2] hover:border-[#bfcad7]"
+          } ${
+            isProcessing ? "pointer-events-none opacity-60" : "cursor-pointer"
+          }`}
         >
           <input
             type="file"
@@ -106,57 +127,30 @@ export default function UploadModal({ isOpen, onClose, onEmailParsed }: UploadMo
           />
           <label htmlFor="eml-upload" className="cursor-pointer">
             <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-[#5e6ad2]/20 rounded-full flex items-center justify-center">
-                <svg width="32" height="32" viewBox="0 0 20 20" fill="none">
-                  <path
-                    d="M10 2L3 7v11h14V7l-7-5z"
-                    stroke="#5e6ad2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M10 8v8M6 12h8"
-                    stroke="#5e6ad2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-white text-base font-medium">
-                  {isProcessing ? 'Processing...' : 'Drop your .eml file here'}
+              
+                <img src={EMLUploadIcon} alt="EML" width={64} height={64} />
+              
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-semibold text-[#111314]">
+                  {isProcessing ? "Processing..." : "Drop your .eml file here"}
                 </p>
-                <p className="text-[#9ca3af] text-sm">
-                  or click to browse
-                </p>
+                <p className="text-sm text-[#A8A8A8]">or click to browse</p>
               </div>
             </div>
           </label>
         </div>
 
         {error && (
-          <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <p className="text-red-400 text-sm">{error}</p>
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
 
-        <div className="mt-6 flex items-center gap-3">
-          <div className="flex-1 h-px bg-[#374151]" />
-          <span className="text-[#9ca3af] text-sm">OR</span>
-          <div className="flex-1 h-px bg-[#374151]" />
+        <div className="mt-4 flex items-start justify-center gap-2 text-[12px] font-medium text-[#a8a8a8]">
+          <span className="text-[#d4a311]">!</span>
+          <p>Having trouble getting EML file? Take a look at our guide!</p>
         </div>
-
-        <button
-          onClick={onClose}
-          className="mt-6 w-full bg-[#26272e] border border-[#2d2f31] text-white py-2.5 rounded-lg hover:bg-[#2d2f31] transition-colors"
-          disabled={isProcessing}
-        >
-          Cancel
-        </button>
       </div>
     </div>
   );
 }
-
