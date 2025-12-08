@@ -10,9 +10,13 @@ import HamburgerIcon from "../assets/HamburgerIcon.svg";
 export default function Header({
   onChangeEmail,
   onResetChanges,
+  showShareLink = false,
+  onShareLink,
 }: {
   onChangeEmail: () => void;
   onResetChanges?: () => void;
+  showShareLink?: boolean;
+  onShareLink?: () => void;
 }) {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -61,7 +65,7 @@ export default function Header({
     <div>
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex flex-row items-center justify-between px-6 pt-6 py-4 md:py-2 bg-[#F5F3EF]">
-        <div 
+        <div
           className="bg-[#EAEAEA] flex flex-row gap-2 px-4 py-3 items-center cursor-pointer"
           onClick={() => navigate("/")}
         >
@@ -74,12 +78,7 @@ export default function Header({
         </div>
         <div className="flex flex-row gap-2 items-center relative">
           <div className="bg-[#EAEAEA] flex items-center justify-center px-4 py-2">
-            <img
-              src={HelpIcon}
-              height={20}
-              width={20}
-              alt="Help Icon"
-            />
+            <img src={HelpIcon} height={20} width={20} alt="Help Icon" />
           </div>
           <div
             ref={hamburgerRef}
@@ -93,25 +92,41 @@ export default function Header({
               alt={isMenuOpen ? "Close Menu" : "Open Menu"}
             />
           </div>
-          
+
           {/* Dropdown Menu */}
           {isMenuOpen && (
             <div
               ref={menuRef}
               className="absolute top-full right-0 mt-2 bg-[#F5F3EF] shadow-[0px_1px_4px_0px_rgba(12,12,13,0.1),0px_1px_4px_0px_rgba(12,12,13,0.05)] px-4 py-2 min-w-[160px] z-50 flex flex-col gap-4"
             >
-              <button
-                onClick={handleResetChanges}
-                className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
-              >
-                Reset changes
-              </button>
-              <button
-                onClick={handleChangeEmail}
-                className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
-              >
-                Change email
-              </button>
+              {showShareLink ? (
+                <button
+                  onClick={() => {
+                    if (onShareLink) {
+                      onShareLink();
+                    }
+                    setIsMenuOpen(false);
+                  }}
+                  className="block w-full text-left text-white bg-[#111314] text-base font-medium leading-5 hover:opacity-90 transition-opacity cursor-pointer px-4 py-2 rounded"
+                >
+                  Share Link
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleResetChanges}
+                    className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
+                  >
+                    Reset changes
+                  </button>
+                  <button
+                    onClick={handleChangeEmail}
+                    className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
+                  >
+                    Change email
+                  </button>
+                </>
+              )}
               <button
                 className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
                 onClick={() => setIsMenuOpen(false)}
@@ -126,10 +141,7 @@ export default function Header({
       {/* Desktop Header */}
       <div className="hidden md:block">
         <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-3 items-center">
-          <div 
-            className="cursor-pointer"
-            onClick={() => navigate("/")}
-          >
+          <div className="cursor-pointer" onClick={() => navigate("/")}>
             <img
               src={WhistleblowerLogo}
               height={20}
@@ -140,17 +152,30 @@ export default function Header({
           {/* <div className="w-px h-6 bg-[#D4D4D4]" />
           <div className="text-[#111314]">Verify</div> */}
         </div>
-        <div className="bg-[#EAEAEA] fixed top-6 right-6 z-50 flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
-          <div
-            onClick={onResetChanges}
-            className={onResetChanges ? "cursor-pointer" : ""}
-          >
-            Reset Changes
-          </div>
-          <div className="w-px h-6 bg-[#D4D4D4]" />
-          <div onClick={onChangeEmail} className="cursor-pointer">
-            Change Email
-          </div>
+        <div className="fixed top-6 right-6 z-50 flex flex-row gap-4 items-center">
+          {showShareLink ? (
+            <button
+              onClick={onShareLink}
+              className="bg-[#111314] text-white px-4 py-2 rounded hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              Share Link
+            </button>
+          ) : (
+            <div className="bg-[#EAEAEA] fixed top-6 right-6 z-50 flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
+              <>
+                <div
+                  onClick={onResetChanges}
+                  className={onResetChanges ? "cursor-pointer" : ""}
+                >
+                  Reset Changes
+                </div>
+                <div className="w-px h-6 bg-[#D4D4D4]" />
+                <div onClick={onChangeEmail} className="cursor-pointer">
+                  Change Email
+                </div>
+              </>
+            </div>
+          )}
         </div>
       </div>
     </div>
