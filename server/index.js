@@ -41,7 +41,7 @@ const port = process.env.PORT || 3001;
 
 // Middleware
 // CORS configuration - allow frontend origins
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['http://localhost:5173', 'http://localhost:3000'];
 
@@ -127,15 +127,11 @@ app.post('/api/generate-uuid', async (req, res) => {
   }
 });
 
-// DEPRECATED: EML upload no longer needed - verification uses proof outputs directly
-// Keeping endpoint for backward compatibility but it will be removed in a future version
-// app.post('/api/get-upload-url', async (req, res) => { ... });
-
 // Generate signed URL for proof upload (using the same UUID as EML)
 app.post('/api/get-proof-upload-url', async (req, res) => {
   try {
     const { uuid, headerMask, bodyMask } = req.body;
-    
+
     if (!uuid) {
       return res.status(400).json({ error: 'UUID is required' });
     }
@@ -221,7 +217,7 @@ app.get('/api/get-data/:uuid', async (req, res) => {
     try {
       const proofText = proofContents.toString();
       proofData = JSON.parse(proofText);
-      
+
       // Validate structure
       if (!proofData || typeof proofData !== 'object') {
         throw new Error('Invalid proof data: not an object');
@@ -232,7 +228,7 @@ app.get('/api/get-data/:uuid', async (req, res) => {
       if (!Array.isArray(proofData.proof)) {
         throw new Error('Invalid proof data: proof is not an array');
       }
-      
+
       // IMPORTANT: publicInputs should be STRINGS (hex strings), not arrays
       // The library expects strings, so we should preserve them as strings
       proofData.publicInputs = proofData.publicInputs.map((arr, idx) => {
@@ -255,7 +251,7 @@ app.get('/api/get-data/:uuid', async (req, res) => {
         }
         throw new Error(`Invalid publicInput type at index ${idx}: ${typeof arr}`);
       });
-      
+
       // Ensure proof is an array of numbers
       if (Array.isArray(proofData.proof)) {
         proofData.proof = proofData.proof.map((v, vIdx) => {
@@ -280,7 +276,7 @@ app.get('/api/get-data/:uuid', async (req, res) => {
       console.error('Proof contents (first 500 chars):', proofContents.toString().substring(0, 500));
       throw error;
     }
-    
+
     // Parse metadata if available
     const metadata = metadataContents
       ? JSON.parse(metadataContents.toString())
@@ -311,7 +307,7 @@ app.get('/health', (req, res) => {
 if (process.env.NODE_ENV === 'production') {
   const distPath = join(__dirname, '..', 'dist');
   app.use(express.static(distPath));
-  
+
   // Serve index.html for all non-API routes (SPA routing)
   app.get('*', (req, res) => {
     res.sendFile(join(distPath, 'index.html'));
@@ -321,4 +317,3 @@ if (process.env.NODE_ENV === 'production') {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
-
