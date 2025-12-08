@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
 import HomeHeader from '../components/HomeHeader';
+import BeforeAfterSlider from '../components/BeforeAfterSlider';
+import UnmaskedEmailIllustration from '../assets/unmasked-email-illustration.png';
+import MaskedEmailIllustration from '../assets/masked-email-illustration.png';
 import './Home.css';
 
 const PageSection = ({
@@ -103,10 +106,13 @@ export default function Home() {
         <PageSection height="h-32" />
         <Separator solid />
         <PageSection solid>
-          <img
-            src="/email-illustration.png"
+          <BeforeAfterSlider
+            beforeImage={MaskedEmailIllustration}
+            afterImage={UnmaskedEmailIllustration}
+            beforeLabel="Before"
+            afterLabel="After"
+            className="-mt-2 scale-x-[1.031] scale-y-[1.046] translate-y-0.5"
             alt="An illustration of a stylized email inbox interface"
-            className="h-full w-auto -mt-2 scale-x-[1.031] scale-y-[1.046] translate-y-0.5"
           />
         </PageSection>
         <Separator solid />
