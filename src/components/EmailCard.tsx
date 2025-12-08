@@ -2023,7 +2023,7 @@ export default function EmailCard({
           <div className="flex items-center justify-between md:justify-start md:w-30 w-full">
             <span className="w-auto">
               <span className="text-[#111314] bg-[#F5F3EF] text-base font-normal w-fit px-3 py-1 md:py-0.5 border border-[#F5F3EF]">
-                Body
+                BODY
               </span>
             </span>
             {onToggleMask && (
