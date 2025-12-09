@@ -11,6 +11,7 @@ interface CircuitConfig {
   outputFile: string;
   maxHeaderLength: number;
   maxBodyLength: number;
+  keyBits: number;
 }
 
 interface Config {
@@ -81,8 +82,11 @@ function checkVersions(config: Config): boolean {
   return !hasErrors;
 }
 
-function patchMainNr(maxHeaderLength: number, maxBodyLength: number): string {
+function patchMainNr(maxHeaderLength: number, maxBodyLength: number, keyBits: number): string {
   const originalContent = readFileSync(MAIN_NR_PATH, "utf-8");
+
+  // Determine the KEY_LIMBS constant to use based on key bits
+  const keyLimbsConstant = keyBits === 1024 ? "KEY_LIMBS_1024" : "KEY_LIMBS_2048";
 
   const patchedContent = originalContent
     .replace(
@@ -92,6 +96,10 @@ function patchMainNr(maxHeaderLength: number, maxBodyLength: number): string {
     .replace(
       /global MAX_EMAIL_BODY_LENGTH: u32 = \d+;/,
       `global MAX_EMAIL_BODY_LENGTH: u32 = ${maxBodyLength};`
+    )
+    .replace(
+      /global KEY_LIMBS: u32 = KEY_LIMBS_\d+;/,
+      `global KEY_LIMBS: u32 = ${keyLimbsConstant};`
     );
 
   writeFileSync(MAIN_NR_PATH, patchedContent);
@@ -151,11 +159,11 @@ async function main() {
   log("\n🏗️  Compiling circuits...\n", "cyan");
 
   for (const circuit of config.circuits) {
-    log(`  📦 ${circuit.name} (header: ${circuit.maxHeaderLength}, body: ${circuit.maxBodyLength})`, "blue");
+    log(`  📦 ${circuit.name} (key: ${circuit.keyBits}-bit, header: ${circuit.maxHeaderLength}, body: ${circuit.maxBodyLength})`, "blue");
 
     try {
       // Patch main.nr
-      patchMainNr(circuit.maxHeaderLength, circuit.maxBodyLength);
+      patchMainNr(circuit.maxHeaderLength, circuit.maxBodyLength, circuit.keyBits);
 
       // Compile
       const compileSuccess = compileCircuit();

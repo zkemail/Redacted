@@ -1,15 +1,16 @@
 use sha256::sha256_var;
 use std::{collections::bounded_vec::BoundedVec, hash::pedersen_hash};
 use zkemail::{
-    dkim::RSAPubkey, headers::body_hash::get_body_hash, KEY_LIMBS_1024, masking::mask_text,
+    dkim::RSAPubkey, headers::body_hash::get_body_hash, KEY_LIMBS_1024, KEY_LIMBS_2048, masking::mask_text,
     Sequence,
 };
 
 global MAX_EMAIL_HEADER_LENGTH: u32 = 2048;
 global MAX_EMAIL_BODY_LENGTH: u32 = 4096;
+global KEY_LIMBS: u32 = KEY_LIMBS_1024;
 
 /**
- * Verify an arbitrary email signed by a 2048-bit RSA DKIM signature and mask outputs
+ * Verify an arbitrary email signed by a 1024-bit or 2048-bit RSA DKIM signature and mask outputs
  *
  * @param header - The email header, 0-padded at end to the MAX_EMAIL_HEADER_LENGTH
  * @param body - The email body, 0-padded at end to the MAX_EMAIL_BODY_LENGTH
@@ -26,8 +27,8 @@ global MAX_EMAIL_BODY_LENGTH: u32 = 4096;
 fn main(
     header: BoundedVec<u8, MAX_EMAIL_HEADER_LENGTH>,
     body: BoundedVec<u8, MAX_EMAIL_BODY_LENGTH>,
-    pubkey: RSAPubkey<KEY_LIMBS_1024>,
-    signature: [Field; KEY_LIMBS_1024],
+    pubkey: RSAPubkey<KEY_LIMBS>,
+    signature: [Field; KEY_LIMBS],
     body_hash_index: u32,
     dkim_header_sequence: Sequence,
     header_mask: [bool; MAX_EMAIL_HEADER_LENGTH],

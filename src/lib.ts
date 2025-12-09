@@ -7,22 +7,29 @@ import acvm from "@noir-lang/acvm_js/web/acvm_js_bg.wasm?url";
 import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 // import circuit from "./circuit/target/circuit.json";
 import {
-  generateEmailVerifierInputs,
-  generateEmailVerifierInputsFromDKIMResult,
+  generateEmailVerifierInputsFromDKIMResult
 } from "@zk-email/zkemail-nr";
 import type { DKIMResult } from "./utils/emlParser";
-import circuitEmailMaskSmallJson from "./circuit/target/email_mask_small.json";
-import circuitEmailMaskMidJson from "./circuit/target/email_mask_mid.json";
-import circuitEmailMaskLargeJson from "./circuit/target/email_mask_large.json";
-import circuitEmailMaskXLargeJson from "./circuit/target/email_mask_xlarge.json";
+// 1024-bit key circuits
+import circuitEmailMask1024SmallJson from "./circuit/target/email_mask_1024_small.json";
+import circuitEmailMask1024MidJson from "./circuit/target/email_mask_1024_mid.json";
+import circuitEmailMask1024LargeJson from "./circuit/target/email_mask_1024_large.json";
+// 2048-bit key circuits
+import circuitEmailMask2048SmallJson from "./circuit/target/email_mask_2048_small.json";
+import circuitEmailMask2048MidJson from "./circuit/target/email_mask_2048_mid.json";
+import circuitEmailMask2048LargeJson from "./circuit/target/email_mask_2048_large.json";
 import circuitConfigs from "./circuit-configs.json";
 
 // Map circuit names to their compiled JSON
 const circuitJsonMap: Record<string, CompiledCircuit> = {
-  email_mask_small: circuitEmailMaskSmallJson as CompiledCircuit,
-  email_mask_mid: circuitEmailMaskMidJson as CompiledCircuit,
-  email_mask_large: circuitEmailMaskLargeJson as CompiledCircuit,
-  email_mask_xlarge: circuitEmailMaskXLargeJson as CompiledCircuit,
+  // 1024-bit key circuits
+  email_mask_1024_small: circuitEmailMask1024SmallJson as CompiledCircuit,
+  email_mask_1024_mid: circuitEmailMask1024MidJson as CompiledCircuit,
+  email_mask_1024_large: circuitEmailMask1024LargeJson as CompiledCircuit,
+  // 2048-bit key circuits
+  email_mask_2048_small: circuitEmailMask2048SmallJson as CompiledCircuit,
+  email_mask_2048_mid: circuitEmailMask2048MidJson as CompiledCircuit,
+  email_mask_2048_large: circuitEmailMask2048LargeJson as CompiledCircuit,
 };
 
 // Build CIRCUIT_CONFIGS from the shared configuration
@@ -31,6 +38,7 @@ const CIRCUIT_CONFIGS = circuitConfigs.circuits.map((config) => ({
   circuit: circuitJsonMap[config.name],
   maxHeaderLength: config.maxHeaderLength,
   maxBodyLength: config.maxBodyLength,
+  keyBits: config.keyBits,
 }));
 
 // Initialize WASM modules
@@ -46,25 +54,37 @@ interface ProofDataWithMetadata extends ProofData {
 }
 
 /**
- * Select the appropriate circuit based on body mask length only
+ * Select the appropriate circuit based on DKIM key size and body mask length
  *
+ * @param keyBits - The DKIM RSA key size in bits (1024 or 2048)
  * @param headerMaskLength - Length of the header mask array (for logging only)
  * @param bodyMaskLength - Length of the body mask array
- * @returns The circuit configuration that can accommodate the body size
+ * @returns The circuit configuration that can accommodate the key size and body size
+ * @throws Error if no circuit supports the given key size
  */
-function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
+function selectCircuit(keyBits: number, headerMaskLength: number, bodyMaskLength: number) {
+  // Filter circuits by key size
+  const keyMatchingCircuits = CIRCUIT_CONFIGS.filter(config => config.keyBits === keyBits);
+
+  if (keyMatchingCircuits.length === 0) {
+    throw new Error(
+      `Unsupported DKIM key size: ${keyBits} bits. ` +
+      `This application only supports ${[...new Set(CIRCUIT_CONFIGS.map(c => c.keyBits))].join(' and ')}-bit RSA keys. ` +
+      `The email you're trying to verify was signed with a ${keyBits}-bit key.`
+    );
+  }
+
   // Find the smallest circuit that can accommodate the body mask length
-  // Header mask length is not considered in the selection
-  for (const config of CIRCUIT_CONFIGS) {
+  for (const config of keyMatchingCircuits) {
     if (bodyMaskLength <= config.maxBodyLength) {
-      console.log(`📦 [CIRCUIT] Selected ${config.name} (header: ${headerMaskLength}/${config.maxHeaderLength}, body: ${bodyMaskLength}/${config.maxBodyLength})`);
+      console.log(`📦 [CIRCUIT] Selected ${config.name} (key: ${keyBits}-bit, header: ${headerMaskLength}/${config.maxHeaderLength}, body: ${bodyMaskLength}/${config.maxBodyLength})`);
       return config;
     }
   }
 
-  // If no circuit can accommodate, use the largest one and log a warning
-  const largest = CIRCUIT_CONFIGS[CIRCUIT_CONFIGS.length - 1];
-  console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits. Using largest circuit: ${largest.name}`);
+  // If no circuit can accommodate, use the largest one for this key size and log a warning
+  const largest = keyMatchingCircuits[keyMatchingCircuits.length - 1];
+  console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits for ${keyBits}-bit keys. Using largest circuit: ${largest.name}`);
   return largest;
 }
 
@@ -91,13 +111,26 @@ export const handleGenerateProof = async (
   existingDkimResult?: DKIMResult
 ) => {
   try {
-
     console.log("headerMask", headerMask);
     console.log("bodyMask", bodyMask);
     console.log("headerMask.length", headerMask.length);
     console.log("bodyMask.length", bodyMask.length);
-    // Select circuit based on actual mask lengths (before padding)
-    const circuitConfig = selectCircuit(headerMask.length, bodyMask.length);
+
+    // Get DKIM result to detect key size
+    let dkimResult = existingDkimResult;
+    if (!dkimResult) {
+      // We need to run DKIM verification to get the key size
+      // Import dynamically to avoid circular dependency issues
+      const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
+      dkimResult = await verifyDKIMSignature(email);
+    }
+
+    // Detect key size from DKIM result
+    const keyBits = dkimResult.modulusLength;
+    console.log(`🔑 [DKIM] Detected ${keyBits}-bit RSA key`);
+
+    // Select circuit based on key size and body mask length
+    const circuitConfig = selectCircuit(keyBits, headerMask.length, bodyMask.length);
     const selectedCircuit = circuitConfig.circuit;
 
     const noir = new Noir(selectedCircuit);
@@ -117,24 +150,14 @@ export const handleGenerateProof = async (
       ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(1)]
       : bodyMask.slice(0, circuitConfig.maxBodyLength);
 
-    // Use two-step approach if DKIM result is available (Phase 2 optimization)
-    // This avoids running DKIM verification twice (once during parsing, once during proof generation)
-    let inputs;
-    if (existingDkimResult) {
-      console.log("[PROOF] Using existing DKIM result (no double verification)");
-      inputs = await generateEmailVerifierInputsFromDKIMResult(existingDkimResult, {
-        headerMask: paddedHeaderMask,
-        bodyMask: paddedBodyMask,
-        ...inputParams,
-      });
-    } else {
-      console.log("[PROOF] No existing DKIM result, running full verification");
-      inputs = await generateEmailVerifierInputs(email, {
-        headerMask: paddedHeaderMask,
-        bodyMask: paddedBodyMask,
-        ...inputParams,
-      });
-    }
+    // Generate circuit inputs from DKIM result (reusing the result we already have)
+    console.log("[PROOF] Using DKIM result for input generation");
+    const inputs = await generateEmailVerifierInputsFromDKIMResult(dkimResult, {
+      headerMask: paddedHeaderMask,
+      bodyMask: paddedBodyMask,
+      ...inputParams,
+    });
+
     // generate witness
     const { witness } = await noir.execute(inputs);
 
@@ -142,8 +165,7 @@ export const handleGenerateProof = async (
     const proof = await backend.generateProof(witness);
     console.timeEnd("generateProof");
 
-    // Store circuit name in proof metadata for verification
-    // We'll add it as a custom property (note: this won't affect the proof structure)
+    // Store circuit metadata in proof for verification
     const proofWithMetadata = proof as ProofDataWithMetadata;
     proofWithMetadata.__circuitName = circuitConfig.name;
     proofWithMetadata.__maxHeaderLength = circuitConfig.maxHeaderLength;
@@ -317,29 +339,23 @@ export function extractMaskedDataFromProof(proof: ProofData): {
     let maxHeaderLength: number;
     let maxBodyLength: number;
 
-    // Check against known circuit configurations
-    // 2 + 512 + 1024 = 1538 (email_mask)
-    // 2 + 1024 + 2048 = 3074 (email_mask_mid)
-    // 2 + 2048 + 4096 = 6146 (email_mask_large)
-    // 2 + 4096 + 8192 = 12290 (email_mask_xlarge)
-    if (totalInputs === 1538) {
-      maxHeaderLength = 512;
-      maxBodyLength = 1024;
-    } else if (totalInputs === 3074) {
-      maxHeaderLength = 1024;
-      maxBodyLength = 2048;
-    } else if (totalInputs === 6146) {
-      maxHeaderLength = 2048;
-      maxBodyLength = 4096;
-    } else if (totalInputs === 12290) {
-      maxHeaderLength = 4096;
-      maxBodyLength = 8192;
+    // Try to use metadata first (most reliable)
+    const proofWithMeta = proof as ProofDataWithMetadata;
+    if (proofWithMeta.__maxHeaderLength && proofWithMeta.__maxBodyLength) {
+      maxHeaderLength = proofWithMeta.__maxHeaderLength;
+      maxBodyLength = proofWithMeta.__maxBodyLength;
     } else {
-      // Try to use metadata if available
-      const proofWithMeta = proof as ProofDataWithMetadata;
-      if (proofWithMeta.__maxHeaderLength && proofWithMeta.__maxBodyLength) {
-        maxHeaderLength = proofWithMeta.__maxHeaderLength;
-        maxBodyLength = proofWithMeta.__maxBodyLength;
+      // Fall back to detecting from publicInputs length
+      // Structure: 2 (pubkey + nullifier) + maxHeaderLength + maxBodyLength
+      // Find matching circuit config
+      const matchingConfig = CIRCUIT_CONFIGS.find(config => {
+        const expectedLength = 2 + config.maxHeaderLength + config.maxBodyLength;
+        return expectedLength === totalInputs;
+      });
+
+      if (matchingConfig) {
+        maxHeaderLength = matchingConfig.maxHeaderLength;
+        maxBodyLength = matchingConfig.maxBodyLength;
       } else {
         console.error(`Unknown circuit configuration: ${totalInputs} publicInputs`);
         return null;
