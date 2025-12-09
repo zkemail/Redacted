@@ -32,7 +32,7 @@ export default function ActionBar({
   const verifyLabel = isVerifyingProof
     ? "Verifying..."
     : proofVerified
-    ? "Proof Verified"
+    ? "Authentic Mail"
     : "Verify Proof";
 
   const verifyDisabled = isVerifyingProof || proofVerified;
@@ -71,7 +71,7 @@ export default function ActionBar({
                 ) : proofVerified ? (
                   <img
                     src={SealCheckIcon}
-                    alt="Proof Verified"
+                    alt="Authentic Mail"
                     width={20}
                     height={20}
                   />
