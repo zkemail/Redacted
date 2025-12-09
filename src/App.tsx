@@ -7,7 +7,7 @@ import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail, type DKIMResult } from "./utils/emlParser";
-import { handleGenerateProof } from "./lib";
+import { handleGenerateProof, handleVerifyProof as verifyProof } from "./lib";
 import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
