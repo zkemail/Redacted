@@ -929,11 +929,18 @@ export default function EmailCard({
     const bits = bodyMaskBits.length === bodyText.length
       ? bodyMaskBits
       : new Array(bodyText.length).fill(1);
-    
+
+    // Prioritize plain text rendering to avoid coordinate space mismatch
+    // between HTML content and bodyText (used for mask bits).
+    // For multipart emails, bodyText and bodyHtml are independent MIME parts
+    // with potentially different content, causing selection offset issues.
+    if (bodyText) {
+      return createMaskedHtmlFromPlainText(bodyText, bits);
+    }
     if (email.bodyHtml) {
       return createMaskedHtmlFromHtml(email.bodyHtml, bits);
     }
-    return createMaskedHtmlFromPlainText(bodyText, bits);
+    return '';
   }, [
     email.bodyHtml,
     bodyText,
