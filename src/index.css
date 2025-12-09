@@ -103,3 +103,13 @@ body {
 
 /* Scope scoped classes to prevent conflicts */
 /* These classes are scoped and won't conflict */
+
+/* Disable all clickable actions in email body */
+#email-body-container.email-body-scoped a,
+#email-body-container.email-body-scoped button,
+#email-body-container.email-body-scoped [onclick],
+#email-body-container.email-body-scoped [role="button"] {
+  pointer-events: none !important;
+  cursor: default !important;
+  text-decoration: none !important;
+}
