@@ -260,6 +260,7 @@ export default function VerifyPage() {
         onVerifyProof={handleVerify}
         isVerifyingProof={isVerifying}
         showVerifyProof={true}
+        proofVerified={verificationStatus?.verified === true}
       />
     </div>
   );

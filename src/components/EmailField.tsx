@@ -240,7 +240,7 @@ export default function EmailField({
             result += `<span style="background-color: #000000; color: #000000; display: inline;"${unselectableStyle}>${escapedSegment}</span>`;
           } else {
             // Semi-transparent red mask with line-through (original style)
-            result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80"${unselectableStyle}>${escapedSegment}</span>`;
+            result += `<span class="line-through decoration-black bg-[#92929280] decoration-1 opacity-80"${unselectableStyle}>${escapedSegment}</span>`;
           }
         } else {
           unmaskedSegments++;

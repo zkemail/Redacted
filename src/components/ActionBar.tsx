@@ -3,7 +3,7 @@
 import FileDownloadIcon from "../assets/FileDownloadIcon.svg";
 import ArrowBendUpLeft from "../assets/ArrowBendUpLeft.svg";
 import ArrowBendUpRight from "../assets/ArrowBendUpRight.svg";
-
+import SealCheckIcon from "../assets/SealCheck.svg";
 interface ActionBarProps {
   onUndo?: () => void;
   onRedo?: () => void;
@@ -14,6 +14,7 @@ interface ActionBarProps {
   onVerifyProof?: () => void;
   isVerifyingProof?: boolean;
   showVerifyProof?: boolean; // If true, show verify proof button instead of verify button
+  proofVerified?: boolean;
 }
 
 export default function ActionBar({
@@ -26,7 +27,16 @@ export default function ActionBar({
   onVerifyProof,
   isVerifyingProof = false,
   showVerifyProof = false,
+  proofVerified = false,
 }: ActionBarProps) {
+  const verifyLabel = isVerifyingProof
+    ? "Verifying..."
+    : proofVerified
+    ? "Proof Verified"
+    : "Verify Proof";
+
+  const verifyDisabled = isVerifyingProof || proofVerified;
+
   return (
     <div className="fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max">
       <div className="bg-[#F5F3EF] rounded-2xl px-4 md:px-4 py-3 md:py-3 shadow-[0px_4px_8px_0px_rgba(0,0,0,0.08)]">
@@ -47,13 +57,24 @@ export default function ActionBar({
           )} */}
 
           {showVerifyProof ? (
-            <div 
-              className={`flex items-center gap-2 ${isVerifyingProof ? 'cursor-wait opacity-70' : 'cursor-pointer hover:opacity-80'}`}
-              onClick={() => !isVerifyingProof && onVerifyProof?.()}
+            <div
+              className={`flex items-center gap-2 ${
+                verifyDisabled
+                  ? "cursor-default opacity-70"
+                  : "cursor-pointer hover:opacity-80"
+              }`}
+              onClick={() => !verifyDisabled && onVerifyProof?.()}
             >
               <div className="w-5 h-5 flex items-center justify-center">
                 {isVerifyingProof ? (
                   <div className="w-4 h-4 border-2 border-[#111314] border-t-transparent rounded-full animate-spin" />
+                ) : proofVerified ? (
+                  <img
+                    src={SealCheckIcon}
+                    alt="Proof Verified"
+                    width={20}
+                    height={20}
+                  />
                 ) : (
                   <img
                     src={FileDownloadIcon}
@@ -63,13 +84,19 @@ export default function ActionBar({
                   />
                 )}
               </div>
-              <span className="text-[#111314] text-base font-normal hidden md:block">
-                {isVerifyingProof ? "Verifying..." : "Verify Proof"}
+              <span
+                className={`text-base font-normal hidden md:block text-[#111314]`}
+              >
+                {verifyLabel}
               </span>
             </div>
           ) : (
-            <div 
-              className={`flex items-center gap-2 ${isGeneratingProof ? 'cursor-wait opacity-70' : 'cursor-pointer hover:opacity-80'}`}
+            <div
+              className={`flex items-center gap-2 ${
+                isGeneratingProof
+                  ? "cursor-wait opacity-70"
+                  : "cursor-pointer hover:opacity-80"
+              }`}
               onClick={() => !isGeneratingProof && onVerify?.()}
             >
               <div className="w-5 h-5 flex items-center justify-center">
@@ -106,7 +133,12 @@ export default function ActionBar({
                   type="button"
                   aria-label="Undo"
                 >
-                  <img src={ArrowBendUpLeft} alt="Undo" width={20} height={20} />
+                  <img
+                    src={ArrowBendUpLeft}
+                    alt="Undo"
+                    width={20}
+                    height={20}
+                  />
                 </button>
                 <button
                   onClick={onRedo}
@@ -119,7 +151,12 @@ export default function ActionBar({
                   type="button"
                   aria-label="Redo"
                 >
-                  <img src={ArrowBendUpRight} alt="Redo" width={20} height={20} />
+                  <img
+                    src={ArrowBendUpRight}
+                    alt="Redo"
+                    width={20}
+                    height={20}
+                  />
                 </button>
               </div>
             </>

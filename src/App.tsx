@@ -212,24 +212,6 @@ export default function MainApp() {
       />
 
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
-        {/* Verification Status Banner */}
-        {verificationStatus && (
-          <div
-            className={`mb-6 p-4 rounded-lg ${
-              verificationStatus.verified
-                ? "bg-green-50 border border-green-200"
-                : "bg-red-50 border border-red-200"
-            }`}
-          >
-            <p
-              className={`text-center font-medium ${
-                verificationStatus.verified ? "text-green-800" : "text-red-800"
-              }`}
-            >
-              {verificationStatus.message}
-            </p>
-          </div>
-        )}
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
           email={{
@@ -264,6 +246,7 @@ export default function MainApp() {
           onUndoRedoStateChange={handleUndoRedoStateChange}
           onMaskChange={handleMaskChange}
           disableSelectionMasking={verificationUrl !== null}
+          useBlackMask={generatedProof !== null}
         />
       </main>
 
@@ -277,6 +260,7 @@ export default function MainApp() {
         showVerifyProof={verificationUrl !== null}
         onVerifyProof={handleVerifyProof}
         isVerifyingProof={isVerifyingProof}
+        proofVerified={verificationStatus?.verified === true}
       />
 
       <UploadModal
