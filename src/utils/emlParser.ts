@@ -36,6 +36,8 @@ export interface ParsedEmail {
   minimalEmlContent?: string;
   // Actual DKIM-canonicalized headers from verifyDKIMSignature
   dkimCanonicalizedHeaders?: string;
+  // Actual DKIM-canonicalized body from verifyDKIMSignature
+  dkimCanonicalizedBody?: string;
   // Full DKIM verification result for reuse during proof generation (Phase 2 optimization)
   dkimResult?: DKIMResult;
 }
@@ -187,18 +189,19 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   let canonicalizedBody: string | undefined;
   let minimalEmlContent: string | undefined;
   let dkimCanonicalizedHeaders: string | undefined;
+  let dkimCanonicalizedBody: string | undefined;
   let dkimResult: DKIMResult | undefined;
 
-  // Get actual DKIM-canonicalized headers for accurate header masking
+  // Get actual DKIM-canonicalized headers and body for accurate masking
   // Also store full DKIM result to reuse during proof generation (Phase 2 optimization)
   try {
     dkimResult = await verifyDKIMSignature(emlContent, undefined, undefined, true);
-    // Convert Buffer to string for storage
+    // Convert Buffers to strings for storage
     dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');
-    console.log('[DKIM] Got canonicalized headers:', dkimCanonicalizedHeaders?.substring(0, 200));
+    dkimCanonicalizedBody = dkimResult.body.toString('utf-8');
   } catch (error) {
     console.warn('[DKIM] Verification failed during parsing:', error);
-    // Continue without canonicalized headers - will fall back to position-based mapping
+    // Continue without canonicalized headers/body - will fall back to position-based mapping
   }
 
   try {
@@ -213,15 +216,12 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
 
       if (canonicalFrom) {
         from = canonicalFrom;
-        console.log('[DKIM] Using FROM from canonicalized headers:', from);
       }
       if (canonicalTo) {
         to = canonicalTo;
-        console.log('[DKIM] Using TO from canonicalized headers:', to);
       }
       if (canonicalSubject) {
         subject = canonicalSubject;
-        console.log('[DKIM] Using SUBJECT from canonicalized headers:', subject);
       }
     }
 
@@ -334,6 +334,7 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
     canonicalizedBody: canonicalizedBody || undefined,
     minimalEmlContent: minimalEmlContent || undefined,
     dkimCanonicalizedHeaders: dkimCanonicalizedHeaders || undefined,
+    dkimCanonicalizedBody: dkimCanonicalizedBody || undefined,
     dkimResult: dkimResult || undefined,
   };
 }

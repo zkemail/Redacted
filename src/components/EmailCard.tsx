@@ -35,6 +35,7 @@ interface EmailCardProps {
     bodyHtml?: string;
     originalEml?: string; // Original EML file content
     dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
+    dkimCanonicalizedBody?: string; // DKIM-canonicalized body for accurate body masking
     ranges?: {
       from?: { rawStart: number; displayOffset: number; displayLength: number };
       to?: { rawStart: number; displayOffset: number; displayLength: number };
@@ -750,7 +751,7 @@ export default function EmailCard({
         // Try to find where bodyText appears in the HTML plain text
         // Try exact match first
         let bodyTextStartPos = htmlPlainText.indexOf(bodyText);
-        
+
         // If exact match not found, try to find a substring match
         // (bodyText might have whitespace differences)
         if (bodyTextStartPos < 0 && bodyText.length > 0) {
@@ -762,6 +763,36 @@ export default function EmailCard({
             bodyTextStartPos = prefixPos;
           }
         }
+
+        // If still not found, try aligning by leading whitespace difference
+        // htmlPlainText might have leading whitespace that bodyText doesn't have
+        if (bodyTextStartPos < 0 && bodyText.length > 0) {
+          // Count leading whitespace in htmlPlainText
+          let htmlLeadingWs = 0;
+          while (htmlLeadingWs < htmlPlainText.length &&
+                 (htmlPlainText[htmlLeadingWs] === ' ' ||
+                  htmlPlainText[htmlLeadingWs] === '\n' ||
+                  htmlPlainText[htmlLeadingWs] === '\r' ||
+                  htmlPlainText[htmlLeadingWs] === '\t')) {
+            htmlLeadingWs++;
+          }
+
+          // Count leading whitespace in bodyText
+          let bodyLeadingWs = 0;
+          while (bodyLeadingWs < bodyText.length &&
+                 (bodyText[bodyLeadingWs] === ' ' ||
+                  bodyText[bodyLeadingWs] === '\n' ||
+                  bodyText[bodyLeadingWs] === '\r' ||
+                  bodyText[bodyLeadingWs] === '\t')) {
+            bodyLeadingWs++;
+          }
+
+          // If htmlPlainText has more leading whitespace, that's our offset
+          if (htmlLeadingWs > bodyLeadingWs) {
+            bodyTextStartPos = htmlLeadingWs - bodyLeadingWs;
+          }
+        }
+
 
 
         // If HTML text is longer than bodyText, we need to expand the bits array
@@ -777,7 +808,7 @@ export default function EmailCard({
           // Map bodyText positions to HTML positions
           // Default to revealed (1) for unmatched positions
           expandedBits = new Array(htmlTextLength).fill(1);
-          
+
           if (bodyTextStartPos >= 0) {
             // Found bodyText at position bodyTextStartPos in HTML
             // Map bits to that position
@@ -962,6 +993,23 @@ export default function EmailCard({
     rangeToEnd.selectNodeContents(container);
     rangeToEnd.setEnd(range.endContainer, range.endOffset);
     let selectionEnd = rangeToEnd.toString().length;
+
+    // Fix: Account for leading whitespace difference between container DOM and bodyText
+    // The container's textContent may have leading newlines from HTML structure
+    // that don't exist in the original bodyText
+    const containerText = container.textContent || '';
+    let leadingOffset = 0;
+    // Count leading whitespace in container that doesn't exist in bodyText
+    while (leadingOffset < containerText.length &&
+           leadingOffset < selectionStart &&
+           (containerText[leadingOffset] === '\n' || containerText[leadingOffset] === '\r') &&
+           (leadingOffset >= bodyText.length || containerText[leadingOffset] !== bodyText[leadingOffset])) {
+      leadingOffset++;
+    }
+
+    // Adjust selection positions by subtracting the leading offset
+    selectionStart = selectionStart - leadingOffset;
+    selectionEnd = selectionEnd - leadingOffset;
 
     if (selectionStart > selectionEnd) {
       [selectionStart, selectionEnd] = [selectionEnd, selectionStart];
@@ -1268,6 +1316,91 @@ export default function EmailCard({
     }
 
     return { cleaned, positionMap };
+  }
+
+  /**
+   * Generates search variants for a text string to handle encoding differences
+   * between displayed text and canonicalized body.
+   *
+   * @param text - The text to generate variants for
+   * @returns Array of search variants (original, HTML-encoded, etc.)
+   */
+  function generateSearchVariants(text: string): string[] {
+    const variants: string[] = [text];
+
+    // HTML entity encoding variant
+    const htmlEncoded = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    if (htmlEncoded !== text) {
+      variants.push(htmlEncoded);
+    }
+
+    return variants;
+  }
+
+  /**
+   * Searches for text in canonicalized body content, handling soft line breaks.
+   * Returns all positions where the text is found.
+   *
+   * @param searchText - The text to search for
+   * @param canonicalizedBody - The DKIM-canonicalized body
+   * @returns Array of { start, length } for each match
+   */
+  function findAllOccurrences(
+    searchText: string,
+    canonicalizedBody: string
+  ): Array<{ start: number; length: number }> {
+    const results: Array<{ start: number; length: number }> = [];
+
+    // Check if body uses quoted-printable (has soft line breaks)
+    const hasQuotedPrintable = canonicalizedBody.includes('=\r\n') || canonicalizedBody.includes('=\n');
+
+    // Generate all search variants
+    const variants = generateSearchVariants(searchText);
+
+    for (const variant of variants) {
+      if (hasQuotedPrintable) {
+        // Clean-then-search: remove soft breaks and use position mapping
+        const { cleaned: cleanedBody, positionMap } = removeAllSoftLineBreaks(canonicalizedBody);
+        const cleanedVariant = removeAllSoftLineBreaks(variant).cleaned;
+
+        let searchPos = 0;
+        while (searchPos < cleanedBody.length) {
+          const foundInCleaned = cleanedBody.indexOf(cleanedVariant, searchPos);
+          if (foundInCleaned === -1) break;
+
+          // Map back to original positions
+          const originalStart = positionMap.get(foundInCleaned);
+          if (originalStart !== undefined) {
+            // Calculate actual length in original (may include soft breaks)
+            const endInCleaned = foundInCleaned + cleanedVariant.length - 1;
+            const originalEnd = positionMap.get(endInCleaned);
+            const matchLength = originalEnd !== undefined
+              ? originalEnd - originalStart + 1
+              : variant.length;
+
+            results.push({ start: originalStart, length: matchLength });
+          }
+
+          searchPos = foundInCleaned + cleanedVariant.length;
+        }
+      } else {
+        // Direct search
+        let searchPos = 0;
+        while (searchPos < canonicalizedBody.length) {
+          const found = canonicalizedBody.indexOf(variant, searchPos);
+          if (found === -1) break;
+
+          results.push({ start: found, length: variant.length });
+          searchPos = found + variant.length;
+        }
+      }
+    }
+
+    return results;
   }
 
   // Map mask bits to original EML file positions
@@ -1648,179 +1781,89 @@ export default function EmailCard({
       mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
     }
 
-    // For body, use segment-based search to find and mask text in raw body
-    // This approach directly searches for each masked text segment rather than relying on position arithmetic
-    // Previous approaches (direct text match, HTML mapping) had offset bugs due to MIME structure and HTML tags
-    // Circuit-aligned: 0 = masked
-    if (bodyMaskBits.length > 0 && bodyMaskBits.some(bit => bit === 0)) {
+    // Body masking: create a separate mask array for canonicalized body
+    // The circuit receives canonicalized body, so the mask must align with those positions
+    const canonicalizedBody = email.dkimCanonicalizedBody;
+    let canonicalBodyBits: number[] | null = null;
+
+    if (canonicalizedBody) {
+      // Create body mask array sized to canonicalized body (not raw EML body)
+      canonicalBodyBits = new Array(canonicalizedBody.length).fill(1);
+    }
+
+    // Body masking: search directly in canonicalized body (no offset adjustments needed)
+    // This mirrors the header masking approach that works reliably
+    if (canonicalizedBody && canonicalBodyBits && bodyMaskBits.some(bit => bit === 0)) {
+      // Extract masked text segments from displayed bodyText
+      const maskedSegments: Array<{ text: string; displayStart: number; displayEnd: number }> = [];
+      let i = 0;
+      while (i < bodyMaskBits.length && i < bodyText.length) {
+        if (bodyMaskBits[i] === 0) {
+          const segmentStart = i;
+          while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
+            i++;
+          }
+          const segmentEnd = i;
+          const maskedText = bodyText.slice(segmentStart, segmentEnd);
+          if (maskedText.length > 0) {
+            maskedSegments.push({
+              text: maskedText,
+              displayStart: segmentStart,
+              displayEnd: segmentEnd,
+            });
+          }
+        } else {
+          i++;
+        }
+      }
+
+      // For each masked segment, find ALL occurrences in canonicalized body
+      for (const segment of maskedSegments) {
+        const occurrences = findAllOccurrences(segment.text, canonicalizedBody);
+
+        // Mark ALL occurrences as masked in canonicalBodyBits
+        for (const { start, length } of occurrences) {
+          for (let j = 0; j < length; j++) {
+            if (start + j < canonicalBodyBits.length) {
+              canonicalBodyBits[start + j] = 0; // Circuit-aligned: 0 = mask/hide
+            }
+          }
+        }
+      }
+    } else if (!canonicalizedBody && bodyMaskBits.some(bit => bit === 0)) {
+      // Fallback: use old approach with raw EML if no canonicalized body
+      console.warn('[BODY MASK] No canonicalized body available, falling back to raw EML search');
+
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
 
       if (bodyStart > 0 && bodyStart < originalEml.length) {
         const rawBody = originalEml.slice(bodyStart);
-        let bitsMapped = 0;
 
         // Extract masked text segments from bodyText and search for them in rawBody
-        // Circuit-aligned: 0 = masked
         let i = 0;
         while (i < bodyMaskBits.length && i < bodyText.length) {
           if (bodyMaskBits[i] === 0) {
-            // Found start of a masked segment
             const segmentStart = i;
             while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
               i++;
             }
-            const segmentEnd = i;
-
-            // Extract the masked text
-            const maskedText = bodyText.slice(segmentStart, segmentEnd);
+            const maskedText = bodyText.slice(segmentStart, i);
 
             if (maskedText.length > 0) {
-              // Search for this exact text in the raw body
-              let searchPos = 0;
-              while (searchPos < rawBody.length) {
-                const foundPos = rawBody.indexOf(maskedText, searchPos);
-                if (foundPos === -1) break;
-
-                // Mark these positions in the bits array as masked (0)
-                // Note: The zkemail library uses DKIM canonicalized body which may have
-                // positions shifted relative to the raw body (typically by 1 byte).
-                // We adjust by subtracting 1 to compensate for this offset.
-                // If foundPos is 0, we can't shift further back, so we use 0.
+              const foundPos = rawBody.indexOf(maskedText, 0);
+              if (foundPos !== -1) {
                 const adjustedFoundPos = foundPos > 0 ? foundPos - 1 : foundPos;
                 const absolutePos = bodyStart + adjustedFoundPos;
                 for (let j = 0; j < maskedText.length; j++) {
                   if (absolutePos + j < bits.length) {
-                    // Circuit-aligned: 0 = mask/hide
                     bits[absolutePos + j] = 0;
-                    bitsMapped++;
                   }
                 }
-
-                // Only mask the first occurrence in text/plain section
-                // Check if we're in the text/plain section (before text/html)
-                const textHtmlStart = rawBody.toLowerCase().indexOf('content-type: text/html');
-                if (textHtmlStart === -1 || foundPos < textHtmlStart) {
-                  break; // Found in text/plain section, stop searching
-                }
-
-                searchPos = foundPos + maskedText.length;
               }
             }
           } else {
             i++;
-          }
-        }
-
-      }
-    }
-
-    // 4. Also mask corresponding content in text/html MIME part if present
-    // This ensures sensitive data is masked in both text and HTML representations
-    // Circuit-aligned: 0 = masked
-    if (bodyMaskBits.some(bit => bit === 0)) {
-      const bodySeparator = originalEml.indexOf('\r\n\r\n');
-      const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
-
-      if (bodyStart > 0) {
-        const rawBody = originalEml.slice(bodyStart);
-
-        // Check if email uses quoted-printable encoding anywhere
-        const isQuotedPrintable = /Content-Transfer-Encoding:\s*quoted-printable/i.test(rawBody);
-
-        // Find where text/html section starts (after the text/plain section)
-        const textHtmlMarker = rawBody.toLowerCase().indexOf('content-type: text/html');
-        if (textHtmlMarker >= 0) {
-          // Search for masked text in everything after the text/html marker
-          const htmlSectionStart = bodyStart + textHtmlMarker;
-
-          // Build list of masked text segments
-          // Circuit-aligned: 0 = masked
-          const maskedSegments: string[] = [];
-          let i = 0;
-          while (i < bodyMaskBits.length && i < bodyText.length) {
-            if (bodyMaskBits[i] === 0) {
-              const segmentStart = i;
-              while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
-                i++;
-              }
-              maskedSegments.push(bodyText.slice(segmentStart, i));
-            } else {
-              i++;
-            }
-          }
-
-          // For each masked segment, search and mask in the HTML section
-          // Use clean-then-search approach to handle multiple soft line breaks
-          const searchSection = originalEml.slice(htmlSectionStart);
-
-          for (const maskedText of maskedSegments) {
-            if (maskedText.length === 0) continue;
-
-            // Generate search variants: original and HTML-encoded
-            const searchVariants = [
-              maskedText,
-              maskedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-            ];
-
-            for (const variant of searchVariants) {
-              if (isQuotedPrintable) {
-                // Clean-then-search approach: remove soft breaks and use position mapping
-                const { cleaned: cleanedSection, positionMap } = removeAllSoftLineBreaks(searchSection);
-                const cleanedVariant = removeAllSoftLineBreaks(variant).cleaned;
-
-                // Search in cleaned content
-                let searchPos = 0;
-                while (searchPos < cleanedSection.length) {
-                  const foundInCleaned = cleanedSection.indexOf(cleanedVariant, searchPos);
-                  if (foundInCleaned === -1) break;
-
-                  // Map back to original positions and apply -2 offset for HTML section
-                  // Offset breakdown:
-                  //   -1 for DKIM canonicalization (same as text/plain)
-                  //   -1 for MIME blank line after Content-Type header
-                  const originalStart = positionMap.get(foundInCleaned);
-                  if (originalStart !== undefined) {
-                    // Calculate how many original bytes this match spans
-                    // (may be more than cleanedVariant.length due to soft breaks)
-                    const originalEnd = positionMap.get(foundInCleaned + cleanedVariant.length - 1);
-                    const matchLength = originalEnd !== undefined
-                      ? originalEnd - originalStart + 1
-                      : cleanedVariant.length;
-
-                    // Apply -2 offset for HTML section
-                    const adjustedStart = originalStart > 1 ? originalStart - 2 : Math.max(0, originalStart);
-                    const absolutePos = htmlSectionStart + adjustedStart;
-
-                    for (let j = 0; j < matchLength; j++) {
-                      if (absolutePos + j >= 0 && absolutePos + j < bits.length) {
-                        bits[absolutePos + j] = 0; // Circuit-aligned: 0 = mask/hide
-                      }
-                    }
-                  }
-
-                  searchPos = foundInCleaned + cleanedVariant.length;
-                }
-              } else {
-                // Non-quoted-printable: direct search with -2 offset
-                let searchPos = 0;
-                while (searchPos < searchSection.length) {
-                  const found = searchSection.indexOf(variant, searchPos);
-                  if (found === -1) break;
-
-                  // Apply -2 offset for HTML section
-                  const adjustedFound = found > 1 ? found - 2 : Math.max(0, found);
-                  const absolutePos = htmlSectionStart + adjustedFound;
-
-                  for (let j = 0; j < variant.length; j++) {
-                    if (absolutePos + j >= 0 && absolutePos + j < bits.length) {
-                      bits[absolutePos + j] = 0; // Circuit-aligned: 0 = mask/hide
-                    }
-                  }
-                  searchPos = found + variant.length;
-                }
-              }
-            }
           }
         }
       }
@@ -1832,10 +1875,12 @@ export default function EmailCard({
       bits,
       mask: bits.join(""),
       canonicalHeaderBits, // Separate header mask for canonicalized headers (null if not available)
+      canonicalBodyBits, // Separate body mask for canonicalized body (null if not available)
     };
   }, [
     email.originalEml,
     email.dkimCanonicalizedHeaders,
+    email.dkimCanonicalizedBody,
     email.from,
     email.to,
     email.time,
@@ -1876,20 +1921,25 @@ export default function EmailCard({
     if (aggregatedMask.canonicalHeaderBits) {
       // Use the separate header mask that's aligned with canonicalized headers
       headerMask = aggregatedMask.canonicalHeaderBits;
-      console.log(`[MASK] Using canonicalHeaderBits for header mask (length: ${headerMask.length})`);
     } else {
       // Fallback: extract from combined bits (legacy behavior)
       headerMask = bodyStart > 0 && bodyStart < allBits.length
         ? allBits.slice(0, bodyStart)
         : allBits;
-      console.log(`[MASK] Using fallback header mask from bits (length: ${headerMask.length})`);
     }
 
-    // Extract body mask: everything from body start to end
-    // If bodyStart is invalid, use empty array (fallback)
-    const bodyMask = bodyStart > 0 && bodyStart < allBits.length
-      ? allBits.slice(bodyStart)
-      : [];
+    // Body mask: use canonicalBodyBits if available (for DKIM-canonicalized body)
+    // Otherwise fall back to extracting from the combined bits array
+    let bodyMask: number[];
+    if (aggregatedMask.canonicalBodyBits) {
+      // Use the separate body mask that's aligned with canonicalized body
+      bodyMask = aggregatedMask.canonicalBodyBits;
+    } else {
+      // Fallback: extract from combined bits (legacy behavior)
+      bodyMask = bodyStart > 0 && bodyStart < allBits.length
+        ? allBits.slice(bodyStart)
+        : [];
+    }
 
     onMaskChange(headerMask, bodyMask);
   }, [

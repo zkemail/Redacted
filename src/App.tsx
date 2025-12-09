@@ -21,6 +21,7 @@ interface EmailState {
   bodyHtml?: string;
   originalEml?: string; // Store original EML file content
   dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
+  dkimCanonicalizedBody?: string; // DKIM-canonicalized body for accurate body masking
   dkimResult?: DKIMResult; // Full DKIM result for reuse during proof generation (Phase 2 optimization)
 }
 
@@ -71,6 +72,7 @@ export default function MainApp() {
       bodyHtml: parsedEmail.bodyHtml,
       originalEml, // Store original EML content
       dkimCanonicalizedHeaders: parsedEmail.dkimCanonicalizedHeaders, // DKIM-canonicalized headers
+      dkimCanonicalizedBody: parsedEmail.dkimCanonicalizedBody, // DKIM-canonicalized body
       dkimResult: parsedEmail.dkimResult, // Full DKIM result for proof generation (Phase 2 optimization)
     });
     // Reset masked fields when new email is loaded
