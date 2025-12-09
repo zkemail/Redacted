@@ -5,8 +5,8 @@ use zkemail::{
     Sequence,
 };
 
-global MAX_EMAIL_HEADER_LENGTH: u32 = 512;
-global MAX_EMAIL_BODY_LENGTH: u32 = 1024;
+global MAX_EMAIL_HEADER_LENGTH: u32 = 2048;
+global MAX_EMAIL_BODY_LENGTH: u32 = 4096;
 
 /**
  * Verify an arbitrary email signed by a 2048-bit RSA DKIM signature and mask outputs
@@ -19,7 +19,7 @@ global MAX_EMAIL_BODY_LENGTH: u32 = 1024;
  * @param dkim_header_sequence - The index and length of the DKIM header field
  * @param header_mask - The mask for the header
  * @param body_mask - The mask for the body
- * @return - 
+ * @return -
  *         0: Pedersen hash of DKIM public key (root of trust)
  *         1: Pedersen hash of DKIM signature (email nullifier)
  */

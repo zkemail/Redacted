@@ -11,38 +11,27 @@ import {
   generateEmailVerifierInputsFromDKIMResult,
 } from "@zk-email/zkemail-nr";
 import type { DKIMResult } from "./utils/emlParser";
-import circuitEmailMaskJson from "./circuit/target/email_mask.json";
+import circuitEmailMaskSmallJson from "./circuit/target/email_mask_small.json";
 import circuitEmailMaskMidJson from "./circuit/target/email_mask_mid.json";
 import circuitEmailMaskLargeJson from "./circuit/target/email_mask_large.json";
 import circuitEmailMaskXLargeJson from "./circuit/target/email_mask_xlarge.json";
+import circuitConfigs from "./circuit-configs.json";
 
-// Circuit configurations
-const CIRCUIT_CONFIGS = [
-  {
-    name: "email_mask",
-    circuit: circuitEmailMaskJson as CompiledCircuit,
-    maxHeaderLength: 512,
-    maxBodyLength: 1024,
-  },
-  {
-    name: "email_mask_mid",
-    circuit: circuitEmailMaskMidJson as CompiledCircuit,
-    maxHeaderLength: 1024,
-    maxBodyLength: 2048,
-  },
-  {
-    name: "email_mask_large",
-    circuit: circuitEmailMaskLargeJson as CompiledCircuit,
-    maxHeaderLength: 2048,
-    maxBodyLength: 4096,
-  },
-  {
-    name: "email_mask_xlarge",
-    circuit: circuitEmailMaskXLargeJson as CompiledCircuit,
-    maxHeaderLength: 4096,
-    maxBodyLength: 8192,
-  },
-] as const;
+// Map circuit names to their compiled JSON
+const circuitJsonMap: Record<string, CompiledCircuit> = {
+  email_mask_small: circuitEmailMaskSmallJson as CompiledCircuit,
+  email_mask_mid: circuitEmailMaskMidJson as CompiledCircuit,
+  email_mask_large: circuitEmailMaskLargeJson as CompiledCircuit,
+  email_mask_xlarge: circuitEmailMaskXLargeJson as CompiledCircuit,
+};
+
+// Build CIRCUIT_CONFIGS from the shared configuration
+const CIRCUIT_CONFIGS = circuitConfigs.circuits.map((config) => ({
+  name: config.name,
+  circuit: circuitJsonMap[config.name],
+  maxHeaderLength: config.maxHeaderLength,
+  maxBodyLength: config.maxBodyLength,
+}));
 
 // Initialize WASM modules
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
@@ -58,7 +47,7 @@ interface ProofDataWithMetadata extends ProofData {
 
 /**
  * Select the appropriate circuit based on body mask length only
- * 
+ *
  * @param headerMaskLength - Length of the header mask array (for logging only)
  * @param bodyMaskLength - Length of the body mask array
  * @returns The circuit configuration that can accommodate the body size
@@ -72,7 +61,7 @@ function selectCircuit(headerMaskLength: number, bodyMaskLength: number) {
       return config;
     }
   }
-  
+
   // If no circuit can accommodate, use the largest one and log a warning
   const largest = CIRCUIT_CONFIGS[CIRCUIT_CONFIGS.length - 1];
   console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits. Using largest circuit: ${largest.name}`);
@@ -169,7 +158,7 @@ export const handleGenerateProof = async (
 
 /**
  * Verify a zero-knowledge proof
- * 
+ *
  * @param proof - The ProofData object to verify
  * @param circuitName - Optional circuit name to use for verification. If not provided, will try to detect from proof metadata or try all circuits
  * @returns true if proof is valid, false otherwise
@@ -180,7 +169,7 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
     console.log("🔍 [VERIFY] publicInputs count:", proof.publicInputs?.length);
     const firstInputType = typeof (proof.publicInputs?.[0] as unknown);
     console.log("🔍 [VERIFY] First publicInput type:", firstInputType);
-    
+
     if (proof.publicInputs && proof.publicInputs.length > 0) {
       const firstInput = proof.publicInputs[0] as unknown;
       if (typeof firstInput === 'string') {
@@ -192,10 +181,10 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
         console.error("❌ [VERIFY] First publicInput is unexpected type:", typeof firstInput, firstInput);
       }
     }
-    
+
     // Determine which circuit to use for verification
     let circuitToUse: CompiledCircuit | null = null;
-    
+
     if (circuitName) {
       // Use specified circuit
       const config = CIRCUIT_CONFIGS.find(c => c.name === circuitName);
@@ -206,7 +195,7 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
         console.warn(`⚠️ [VERIFY] Circuit name "${circuitName}" not found, trying to detect...`);
       }
     }
-    
+
     if (!circuitToUse) {
       // Try to detect from proof metadata
       const proofWithMeta = proof as ProofDataWithMetadata;
@@ -218,7 +207,7 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
         }
       }
     }
-    
+
     if (!circuitToUse) {
       // Try all circuits (fallback)
       console.log("🔍 [VERIFY] Circuit not specified or detected, trying all circuits...");
@@ -238,7 +227,7 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
       console.error("❌ [VERIFY] Proof verification failed with all circuits");
       return false;
     }
-    
+
     const backend = new UltraHonkBackend(circuitToUse.bytecode);
     console.log("🔍 [VERIFY] Calling backend.verifyProof()...");
     const isValid = await backend.verifyProof(proof);
@@ -278,10 +267,10 @@ export async function generateProofWithMaskedEmail(
 } | null> {
   const proof = await handleGenerateProof(email, headerMask, bodyMask);
   if (!proof) return null;
-  
+
   const maskedData = extractMaskedDataFromProof(proof);
   if (!maskedData) return null;
-  
+
   return {
     proof,
     ...maskedData,
