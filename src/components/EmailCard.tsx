@@ -593,7 +593,7 @@ export default function EmailCard({
             result += `<span style="background-color: #000000; color: #000000; display: inline;">${escapedSegment}</span>`;
           } else {
             // Semi-transparent red mask with line-through (original style)
-          result += `<span class="line-through decoration-black bg-[#FD878950] decoration-1 opacity-80">${escapedSegment}</span>`;
+          result += `<span class="line-through decoration-black bg-[#92929280] decoration-1 opacity-80">${escapedSegment}</span>`;
           }
         } else {
           result += escapedSegment;
@@ -876,7 +876,7 @@ export default function EmailCard({
                   span.style.color = "#000000";
                   span.style.display = "inline";
                 } else {
-                  span.className = "line-through decoration-black bg-[#FD878950] decoration-1 opacity-80";
+                  span.className = "line-through decoration-black bg-[#92929280] decoration-1 opacity-80";
                 }
                 span.textContent = segmentText;
                 fragments.push(span);

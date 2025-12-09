@@ -6,6 +6,7 @@ import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
 import HelpIcon from "../assets/HelpIcon.svg";
 import CloseIcon from "../assets/CloseIcon.svg";
 import HamburgerIcon from "../assets/HamburgerIcon.svg";
+import ShareIcon from "../assets/ShareIcon.svg";
 
 export default function Header({
   onChangeEmail,
@@ -154,12 +155,12 @@ export default function Header({
         </div>
         <div className="fixed top-6 right-6 z-50 flex flex-row gap-4 items-center">
           {showShareLink ? (
-            <button
-              onClick={onShareLink}
-              className="bg-[#111314] text-white px-4 py-2 rounded hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              Share Link
-            </button>
+            <div className="bg-[#EAEAEA] fixed top-6 right-6 z-50 flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
+              <button onClick={onShareLink} className="flex flex-row gap-2 items-center cursor-pointer">
+                <img src={ShareIcon} alt="Share Proof" width={20} height={20} />{" "}
+                Share Proof
+              </button>
+            </div>
           ) : (
             <div className="bg-[#EAEAEA] fixed top-6 right-6 z-50 flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
               <>
