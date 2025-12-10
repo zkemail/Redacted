@@ -15,6 +15,7 @@ interface ActionBarProps {
   isVerifyingProof?: boolean;
   showVerifyProof?: boolean; // If true, show verify proof button instead of verify button
   proofVerified?: boolean;
+  hasMaskedContent?: boolean; // If false, disable the View & Download button
 }
 
 export default function ActionBar({
@@ -28,6 +29,7 @@ export default function ActionBar({
   isVerifyingProof = false,
   showVerifyProof = false,
   proofVerified = false,
+  hasMaskedContent = false,
 }: ActionBarProps) {
   const verifyLabel = isVerifyingProof
     ? "Verifying..."
@@ -36,6 +38,9 @@ export default function ActionBar({
     : "Verify Proof";
 
   const verifyDisabled = isVerifyingProof || proofVerified;
+
+  // Disable View & Download button when generating proof OR when nothing is masked
+  const isViewDownloadDisabled = isGeneratingProof || !hasMaskedContent;
 
   return (
     <div className="fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max">
@@ -93,11 +98,13 @@ export default function ActionBar({
           ) : (
             <div
               className={`flex items-center gap-2 ${
-                isGeneratingProof
-                  ? "cursor-wait opacity-70"
+                isViewDownloadDisabled
+                  ? isGeneratingProof
+                    ? "cursor-wait opacity-70"
+                    : "cursor-not-allowed opacity-50"
                   : "cursor-pointer hover:opacity-80"
               }`}
-              onClick={() => !isGeneratingProof && onVerify?.()}
+              onClick={() => !isViewDownloadDisabled && onVerify?.()}
             >
               <div className="w-5 h-5 flex items-center justify-center">
                 {isGeneratingProof ? (

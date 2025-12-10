@@ -50,6 +50,7 @@ interface EmailCardProps {
   onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void; // Callback to update undo/redo button states
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
   onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
+  onHasMaskedContentChange?: (hasMasked: boolean) => void; // Callback to indicate if any content is masked in UI
   disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
   useBlackMask?: boolean; // If true, use solid black mask instead of semi-transparent red
   initialMaskBits?: {
@@ -69,6 +70,7 @@ export default function EmailCard({
   onUndoRedoStateChange,
   onUndoRedoHandlersReady,
   onMaskChange,
+  onHasMaskedContentChange,
   disableSelectionMasking = false,
   useBlackMask = false,
   initialMaskBits,
@@ -1948,6 +1950,28 @@ export default function EmailCard({
     aggregatedMask,
     email.originalEml,
     onMaskChange,
+  ]);
+
+  // Notify parent when any content is masked in the UI (directly from mask bit arrays)
+  // This bypasses canonicalization issues and reflects actual UI state
+  useEffect(() => {
+    if (!onHasMaskedContentChange) return;
+
+    const hasMasked =
+      fromMaskBits.some(bit => bit === 0) ||
+      toMaskBits.some(bit => bit === 0) ||
+      timeMaskBits.some(bit => bit === 0) ||
+      subjectMaskBits.some(bit => bit === 0) ||
+      bodyMaskBits.some(bit => bit === 0);
+
+    onHasMaskedContentChange(hasMasked);
+  }, [
+    fromMaskBits,
+    toMaskBits,
+    timeMaskBits,
+    subjectMaskBits,
+    bodyMaskBits,
+    onHasMaskedContentChange,
   ]);
 
   return (

@@ -57,6 +57,7 @@ export default function MainApp() {
     verified: boolean;
     message: string;
   } | null>(null);
+  const [hasMaskedContentUI, setHasMaskedContentUI] = useState(false);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -119,6 +120,10 @@ export default function MainApp() {
     },
     []
   );
+
+  const handleHasMaskedContentChange = useCallback((hasMasked: boolean) => {
+    setHasMaskedContentUI(hasMasked);
+  }, []);
 
   const handleVerify = async () => {
     if (!email.originalEml) return;
@@ -245,6 +250,7 @@ export default function MainApp() {
           onUndoRedoHandlersReady={handleUndoRedoHandlersReady}
           onUndoRedoStateChange={handleUndoRedoStateChange}
           onMaskChange={handleMaskChange}
+          onHasMaskedContentChange={handleHasMaskedContentChange}
           disableSelectionMasking={verificationUrl !== null}
           useBlackMask={generatedProof !== null}
         />
@@ -261,6 +267,7 @@ export default function MainApp() {
         onVerifyProof={handleVerifyProof}
         isVerifyingProof={isVerifyingProof}
         proofVerified={verificationStatus?.verified === true}
+        hasMaskedContent={hasMaskedContentUI}
       />
 
       <UploadModal
