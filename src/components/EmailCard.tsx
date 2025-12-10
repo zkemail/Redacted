@@ -50,6 +50,8 @@ interface EmailCardProps {
   onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void; // Callback to update undo/redo button states
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
   onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
+  onHasMaskedContentChange?: (hasMasked: boolean) => void; // Callback to indicate if any content is masked in UI
+  onMaskedFieldsSync?: (fields: Set<string>) => void; // Callback to sync maskedFields when maskBits change
   disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
   useBlackMask?: boolean; // If true, use solid black mask instead of semi-transparent red
   initialMaskBits?: {
@@ -69,6 +71,8 @@ export default function EmailCard({
   onUndoRedoStateChange,
   onUndoRedoHandlersReady,
   onMaskChange,
+  onHasMaskedContentChange,
+  onMaskedFieldsSync,
   disableSelectionMasking = false,
   useBlackMask = false,
   initialMaskBits,
@@ -124,48 +128,37 @@ export default function EmailCard({
       : initialBodyBits
   );
 
-  // Update mask bits based on maskedFields prop
-  // BUT: If initialMaskBits is provided, don't overwrite them (for verify page)
+  // Track previous maskedFields so we only touch the field that changed
+  const prevMaskedFieldsRef = useRef<Set<string>>(new Set());
+
+  // Update mask bits when a field's masked/unmasked toggle changes
+  // Avoid overwriting user selections on other fields.
   useEffect(() => {
     // Skip if initialMaskBits is provided (verify page uses initialMaskBits directly)
     if (initialMaskBits) {
       return;
     }
 
-    // Update from mask bits - circuit-aligned: 0 = hide, 1 = reveal
-    if (maskedFields.has("from")) {
-      setFromMaskBits(new Array(email.from.length).fill(0));
-    } else {
-      setFromMaskBits(new Array(email.from.length).fill(1));
-    }
+    const prev = prevMaskedFieldsRef.current;
+    const updateField = (
+      fieldKey: string,
+      length: number,
+      setter: (bits: number[]) => void
+    ) => {
+      const wasMasked = prev.has(fieldKey);
+      const isMaskedNow = maskedFields.has(fieldKey);
+      if (wasMasked === isMaskedNow) return;
+      // Circuit-aligned: 0 = hide, 1 = reveal
+      setter(new Array(length).fill(isMaskedNow ? 0 : 1));
+    };
 
-    // Update to mask bits
-    if (maskedFields.has("to")) {
-      setToMaskBits(new Array(email.to.length).fill(0));
-    } else {
-      setToMaskBits(new Array(email.to.length).fill(1));
-    }
+    updateField("from", email.from.length, setFromMaskBits);
+    updateField("to", email.to.length, setToMaskBits);
+    updateField("time", email.time.length, setTimeMaskBits);
+    updateField("subject", email.subject.length, setSubjectMaskBits);
+    updateField("body", bodyText.length, setBodyMaskBits);
 
-    // Update time mask bits
-    if (maskedFields.has("time")) {
-      setTimeMaskBits(new Array(email.time.length).fill(0));
-    } else {
-      setTimeMaskBits(new Array(email.time.length).fill(1));
-    }
-
-    // Update subject mask bits
-    if (maskedFields.has("subject")) {
-      setSubjectMaskBits(new Array(email.subject.length).fill(0));
-    } else {
-      setSubjectMaskBits(new Array(email.subject.length).fill(1));
-    }
-
-    // Update body mask bits
-    if (maskedFields.has("body")) {
-      setBodyMaskBits(new Array(bodyText.length).fill(0));
-    } else {
-      setBodyMaskBits(new Array(bodyText.length).fill(1));
-    }
+    prevMaskedFieldsRef.current = new Set(maskedFields);
   }, [maskedFields, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length, initialMaskBits]);
 
   // Update mask bits when initialMaskBits changes (for verify page)
@@ -1961,6 +1954,48 @@ export default function EmailCard({
     onMaskChange,
   ]);
 
+  // Notify parent when any content is masked in the UI (directly from mask bit arrays)
+  // This bypasses canonicalization issues and reflects actual UI state
+  useEffect(() => {
+    if (!onHasMaskedContentChange) return;
+
+    const hasMasked =
+      fromMaskBits.some(bit => bit === 0) ||
+      toMaskBits.some(bit => bit === 0) ||
+      timeMaskBits.some(bit => bit === 0) ||
+      subjectMaskBits.some(bit => bit === 0) ||
+      bodyMaskBits.some(bit => bit === 0);
+
+    onHasMaskedContentChange(hasMasked);
+  }, [
+    fromMaskBits,
+    toMaskBits,
+    timeMaskBits,
+    subjectMaskBits,
+    bodyMaskBits,
+    onHasMaskedContentChange,
+  ]);
+
+  // Sync maskedFields checkboxes based on whether all bits in a field are masked
+  useEffect(() => {
+    if (!onMaskedFieldsSync) return;
+
+    const syncedFields = new Set<string>();
+    if (fromMaskBits.length > 0 && fromMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("from");
+    }
+    if (toMaskBits.length > 0 && toMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("to");
+    }
+    if (timeMaskBits.length > 0 && timeMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("time");
+    }
+    if (subjectMaskBits.length > 0 && subjectMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("subject");
+    }
+    onMaskedFieldsSync(syncedFields);
+  }, [fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, onMaskedFieldsSync]);
+
   return (
     <div className="bg-[#EAEAEA] p-4 md:p-6 h-[calc(100vh-48px-64px)] md:h-[calc(100vh-104px)] overflow-auto">
       <div className="flex flex-col gap-4 md:gap-3">
@@ -2079,7 +2114,7 @@ export default function EmailCard({
           ></div>
           {showMaskButton && currentSelection && (
             <div
-              className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit"
+              className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
               style={{
                 left: `${maskButtonPosition.x}px`,
                 top: `${maskButtonPosition.y}px`,
@@ -2088,7 +2123,7 @@ export default function EmailCard({
               <button
                 type="button"
                 onClick={handleMaskSelection}
-                className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2]hover:text-white rounded-lg transition-colors ${
+                className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2] hover:text-white rounded-lg transition-colors ${
                   currentSelection.maskState === "unmasked" ||
                   currentSelection.maskState === "partial"
                     ? "text-[#111314]"

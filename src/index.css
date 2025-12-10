@@ -66,12 +66,12 @@ body {
 /* Custom selection styling */
 ::selection {
   background-color: rgba(94, 106, 210, 0.3);
-  color: #ffffff;
+  color: #111314;
 }
 
 ::-moz-selection {
   background-color: rgba(94, 106, 210, 0.3);
-  color: #ffffff;
+  color: #111314;
 }
 
 /* Scoped email body container - prevents style leakage */
