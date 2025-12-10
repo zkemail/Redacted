@@ -125,6 +125,13 @@ export default function MainApp() {
     setHasMaskedContentUI(hasMasked);
   }, []);
 
+  const handleMaskedFieldsSync = useCallback((fields: Set<string>) => {
+    setMaskedFields(prev => {
+      const isSame = prev.size === fields.size && [...fields].every(f => prev.has(f));
+      return isSame ? prev : fields;
+    });
+  }, []);
+
   const handleVerify = async () => {
     if (!email.originalEml) return;
 
@@ -251,6 +258,7 @@ export default function MainApp() {
           onUndoRedoStateChange={handleUndoRedoStateChange}
           onMaskChange={handleMaskChange}
           onHasMaskedContentChange={handleHasMaskedContentChange}
+          onMaskedFieldsSync={handleMaskedFieldsSync}
           disableSelectionMasking={verificationUrl !== null}
           useBlackMask={generatedProof !== null}
         />

@@ -36,13 +36,13 @@ export default function UploadModal({
         onClose();
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to parse email file"
+          err instanceof Error ? err.message : "Failed to parse email file",
         );
       } finally {
         setIsProcessing(false);
       }
     },
-    [onEmailParsed, onClose]
+    [onEmailParsed, onClose],
   );
 
   const handleFileInput = useCallback(
@@ -52,7 +52,7 @@ export default function UploadModal({
         handleFile(file);
       }
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleDrop = useCallback(
@@ -65,7 +65,7 @@ export default function UploadModal({
         handleFile(file);
       }
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -127,9 +127,8 @@ export default function UploadModal({
           />
           <label htmlFor="eml-upload" className="cursor-pointer">
             <div className="flex flex-col items-center gap-4">
-              
-                <img src={EMLUploadIcon} alt="EML" width={64} height={64} />
-              
+              <img src={EMLUploadIcon} alt="EML" width={64} height={64} />
+
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-semibold text-[#111314]">
                   {isProcessing ? "Processing..." : "Drop your .eml file here"}
@@ -147,7 +146,7 @@ export default function UploadModal({
         )}
 
         <div className="mt-4 flex items-start justify-center gap-2 text-[12px] font-medium text-[#a8a8a8]">
-          <span className="text-[#d4a311]">!</span>
+          <span className="text-[#A8A8A8]">!</span>
           <p>Having trouble getting EML file? Take a look at our guide!</p>
         </div>
       </div>

@@ -51,6 +51,7 @@ interface EmailCardProps {
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
   onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
   onHasMaskedContentChange?: (hasMasked: boolean) => void; // Callback to indicate if any content is masked in UI
+  onMaskedFieldsSync?: (fields: Set<string>) => void; // Callback to sync maskedFields when maskBits change
   disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
   useBlackMask?: boolean; // If true, use solid black mask instead of semi-transparent red
   initialMaskBits?: {
@@ -71,6 +72,7 @@ export default function EmailCard({
   onUndoRedoHandlersReady,
   onMaskChange,
   onHasMaskedContentChange,
+  onMaskedFieldsSync,
   disableSelectionMasking = false,
   useBlackMask = false,
   initialMaskBits,
@@ -1973,6 +1975,26 @@ export default function EmailCard({
     bodyMaskBits,
     onHasMaskedContentChange,
   ]);
+
+  // Sync maskedFields checkboxes based on whether all bits in a field are masked
+  useEffect(() => {
+    if (!onMaskedFieldsSync) return;
+
+    const syncedFields = new Set<string>();
+    if (fromMaskBits.length > 0 && fromMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("from");
+    }
+    if (toMaskBits.length > 0 && toMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("to");
+    }
+    if (timeMaskBits.length > 0 && timeMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("time");
+    }
+    if (subjectMaskBits.length > 0 && subjectMaskBits.every(bit => bit === 0)) {
+      syncedFields.add("subject");
+    }
+    onMaskedFieldsSync(syncedFields);
+  }, [fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, onMaskedFieldsSync]);
 
   return (
     <div className="bg-[#EAEAEA] p-4 md:p-6 h-[calc(100vh-48px-64px)] md:h-[calc(100vh-104px)] overflow-auto">
