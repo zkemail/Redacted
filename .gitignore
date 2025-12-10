@@ -19,7 +19,6 @@ dist-ssr
 server/.env
 
 # Google Cloud Service Account Keys
-*.json
 !package.json
 !package-lock.json
 !tsconfig*.json

@@ -1,0 +1,50 @@
+{
+  "circuits": [
+    {
+      "name": "email_mask_1024_small",
+      "outputFile": "email_mask_1024_small.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 4096,
+      "keyBits": 1024
+    },
+    {
+      "name": "email_mask_1024_mid",
+      "outputFile": "email_mask_1024_mid.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 8192,
+      "keyBits": 1024
+    },
+    {
+      "name": "email_mask_1024_large",
+      "outputFile": "email_mask_1024_large.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 16384,
+      "keyBits": 1024
+    },
+    {
+      "name": "email_mask_2048_small",
+      "outputFile": "email_mask_2048_small.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 4096,
+      "keyBits": 2048
+    },
+    {
+      "name": "email_mask_2048_mid",
+      "outputFile": "email_mask_2048_mid.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 8192,
+      "keyBits": 2048
+    },
+    {
+      "name": "email_mask_2048_large",
+      "outputFile": "email_mask_2048_large.json",
+      "maxHeaderLength": 2048,
+      "maxBodyLength": 16384,
+      "keyBits": 2048
+    }
+  ],
+  "versions": {
+    "nargo": "1.0.0-beta.5",
+    "barretenberg": "0.84.0"
+  }
+}
