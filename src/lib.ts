@@ -320,7 +320,10 @@ export function extractMaskedDataFromProof(proof: ProofData): {
     }
 
     // Determine circuit configuration from publicInputs length
-    // Structure: 2 (pubkey + nullifier) + maxHeaderLength + maxBodyLength
+    // Structure: [pubkeyHash, nullifier, ...headerBytes, ...bodyBytes]
+    // - First 2 elements: 32-byte hex field elements (pubkey hash + nullifier)
+    // - Next maxHeaderLength elements: one byte per field (header bytes)
+    // - Remaining maxBodyLength elements: one byte per field (body bytes)
     const totalInputs = proof.publicInputs.length;
     let maxHeaderLength: number;
     let maxBodyLength: number;

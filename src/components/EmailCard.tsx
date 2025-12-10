@@ -131,7 +131,7 @@ export default function EmailCard({
     if (initialMaskBits) {
       return;
     }
-    
+
     // Update from mask bits - circuit-aligned: 0 = hide, 1 = reveal
     if (maskedFields.has("from")) {
       setFromMaskBits(new Array(email.from.length).fill(0));
@@ -171,7 +171,7 @@ export default function EmailCard({
   // Update mask bits when initialMaskBits changes (for verify page)
   useEffect(() => {
     if (!initialMaskBits) return;
-    
+
     if (initialMaskBits.fromMaskBits && initialMaskBits.fromMaskBits.length === email.from.length) {
       setFromMaskBits(initialMaskBits.fromMaskBits);
     }
@@ -215,7 +215,7 @@ export default function EmailCard({
       bodyMaskBits: initialBodyBits,
     },
   ]);
-  
+
   // Keep refs in sync with state and update button states
   useEffect(() => {
     historyIndexRef.current = historyIndex;
@@ -295,20 +295,20 @@ export default function EmailCard({
     if (stateKey === lastSavedStateRef.current) {
       return; // This state was already saved, skip
     }
-    
+
     // Don't save if we're currently saving or restoring
     if (isSavingHistoryRef.current) {
       return;
     }
-    
+
     if (isRestoringFromHistoryRef.current) {
       return;
     }
-    
+
     // Mark that we're saving IMMEDIATELY (synchronously) to prevent race conditions
     isSavingHistoryRef.current = true;
     lastSavedStateRef.current = stateKey;
-    
+
     setHistory((prevHistory) => {
       const currentIndex = historyIndexRef.current;
       // Remove any future history if we're not at the end (user made a new change after undoing)
@@ -319,20 +319,20 @@ export default function EmailCard({
       // Limit history size to prevent memory issues (keep last 50 states)
       const finalHistory = newHistory.length > 50 ? newHistory.slice(-50) : newHistory;
       const newIndex = finalHistory.length - 1;
-      
+
       // Update history length ref and history ref
       historyLengthRef.current = finalHistory.length;
       historyRef.current = finalHistory;
-      
+
       // Update history index to point to the new state
       setHistoryIndex(newIndex);
       historyIndexRef.current = newIndex;
-      
+
       // Clear the saving flag after state update completes
       setTimeout(() => {
         isSavingHistoryRef.current = false;
       }, 50); // Increased delay to ensure state update completes
-      
+
       return finalHistory;
     });
   }, []);
@@ -345,13 +345,13 @@ export default function EmailCard({
     lastSavedStateRef.current = JSON.stringify(state);
     // Clear any pending saves
     pendingHistorySaveRef.current = null;
-    
+
     setFromMaskBits([...state.fromMaskBits]);
     setToMaskBits([...state.toMaskBits]);
     setTimeMaskBits([...state.timeMaskBits]);
     setSubjectMaskBits([...state.subjectMaskBits]);
     setBodyMaskBits([...state.bodyMaskBits]);
-    
+
     // Clear the flag after a longer delay to ensure all state updates complete
     // React batches state updates, so we need to wait for all of them
     setTimeout(() => {
@@ -366,16 +366,16 @@ export default function EmailCard({
     if (isUndoRedoInProgressRef.current) {
       return;
     }
-    
+
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex > 0 && currentHistory.length > 0) {
       const newIndex = currentIndex - 1;
       const stateToRestore = currentHistory[newIndex];
       if (stateToRestore) {
         isUndoRedoInProgressRef.current = true;
-        
+
         // Update index synchronously before restoring
         historyIndexRef.current = newIndex;
         setHistoryIndex(newIndex);
@@ -391,16 +391,16 @@ export default function EmailCard({
     if (isUndoRedoInProgressRef.current) {
       return;
     }
-    
+
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex < currentHistory.length - 1 && currentHistory.length > 0) {
       const newIndex = currentIndex + 1;
       const stateToRestore = currentHistory[newIndex];
       if (stateToRestore) {
         isUndoRedoInProgressRef.current = true;
-        
+
         // Update index synchronously before restoring
         historyIndexRef.current = newIndex;
         setHistoryIndex(newIndex);
@@ -427,18 +427,18 @@ export default function EmailCard({
       }
       return;
     }
-    
+
     // Only process if we have a pending save
     const pendingSave = pendingHistorySaveRef.current;
     if (!pendingSave) {
       return;
     }
-    
+
     // Clear pending save immediately to prevent processing it multiple times
     pendingHistorySaveRef.current = null;
-    
+
     const { field, newBits } = pendingSave;
-    
+
     // Get the current state (which now includes the updated field)
     const newState = getCurrentMaskBitsState();
     // Ensure the field we just updated is correctly set
@@ -451,7 +451,7 @@ export default function EmailCard({
     } else if (field === 'subject') {
       newState.subjectMaskBits = newBits;
     }
-    
+
     // Create a key to avoid duplicate saves
     const stateKey = JSON.stringify(newState);
     if (stateKey !== lastSavedStateRef.current) {
@@ -726,16 +726,16 @@ export default function EmailCard({
       try {
         const parser = new window.DOMParser();
         const doc = parser.parseFromString(html, "text/html");
-        
+
         // Try to find the body element first, otherwise use the document body or create a container
         let container: Element | null = doc.body;
-        
+
         // If there's no body or body is empty, try to find the main content
         if (!container || container.textContent?.trim().length === 0) {
           // Try to find a div or other container with actual content
           container = doc.querySelector('body > *') || doc.documentElement;
         }
-        
+
         // If still no container, wrap the HTML in a div
         if (!container) {
           const wrapper = doc.createElement('div');
@@ -746,7 +746,7 @@ export default function EmailCard({
         // First, extract plain text from HTML to compare with bodyText
         const htmlPlainText = container.textContent || '';
         const htmlTextLength = htmlPlainText.length;
-        
+
 
         // Try to find where bodyText appears in the HTML plain text
         // Try exact match first
@@ -793,13 +793,11 @@ export default function EmailCard({
           }
         }
 
-
-
         // If HTML text is longer than bodyText, we need to expand the bits array
         // to match the HTML text length. We'll map bodyText positions to HTML positions.
         // For positions beyond bodyText.length, we'll use 0 (unmasked).
         let expandedBits: number[];
-        
+
         if (htmlTextLength <= bodyText.length) {
           // HTML text is shorter or equal, use bits as-is (truncated if needed)
           expandedBits = bits.slice(0, htmlTextLength);
@@ -846,7 +844,7 @@ export default function EmailCard({
         for (let nodeIdx = 0; nodeIdx < textNodes.length; nodeIdx++) {
           const currentNode = textNodes[nodeIdx];
           const nodeText = currentNode.textContent ?? "";
-          
+
 
           if (nodeText.length > 0) {
             const fragments: Node[] = [];
@@ -859,7 +857,7 @@ export default function EmailCard({
                 fragments.push(doc.createTextNode(nodeText.slice(localIndex)));
                 break;
               }
-              
+
               const currentMask = expandedBits[globalIndex] ?? 0;
               let segmentEnd = localIndex;
               while (
@@ -905,8 +903,8 @@ export default function EmailCard({
         } else {
           processedHtml = container.innerHTML;
         }
-        
-        
+
+
         // Scope the HTML content to prevent style leakage
         return scopeHtmlContent(processedHtml, "email-body-scoped");
       } catch (error) {
@@ -1127,7 +1125,7 @@ export default function EmailCard({
           range.setEnd(endNode, endOffset);
           selection.removeAllRanges();
           selection.addRange(range);
-          
+
           return true;
         }
       }
@@ -1187,11 +1185,11 @@ export default function EmailCard({
       return;
     }
     const { start, end } = currentSelection;
-    
+
     // Clear browser selection and our selection state when mask is applied
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
-    
+
     setBodyMaskBits((prev) => {
       // Always create a new array to ensure React detects the change
       // Default to revealed (1) if length mismatch
@@ -1206,7 +1204,7 @@ export default function EmailCard({
       for (let i = boundedStart; i < boundedEnd; i++) {
         next[i] = 0;
       }
-      
+
       // Save the NEW state to history after the change
       // Construct the new state with the updated bodyMaskBits
       const newState: MaskBitsState = {
@@ -1274,7 +1272,7 @@ export default function EmailCard({
           saveToHistory(newState);
         }, 0);
       }
-      
+
       return next;
     });
     clearSelectionState();
@@ -1505,25 +1503,25 @@ export default function EmailCard({
           // Fallback: search for the header line
           const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
           const headerLineMatch = headerLinePattern.exec(headersSection);
-          
+
           if (headerLineMatch) {
             const lineStart = headerLineMatch.index;
             const line = headerLineMatch[0];
             const colonIndex = line.indexOf(':');
-            
+
             if (colonIndex >= 0) {
               // Get everything after the colon
               const valueSection = line.slice(colonIndex + 1);
-              
+
               // Look for angle brackets first - emails are often in <email@example.com> format
               const angleBracketStart = valueSection.indexOf('<');
               const angleBracketEnd = angleBracketStart >= 0 ? valueSection.indexOf('>', angleBracketStart) : -1;
-              
+
               if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
                 // There are angle brackets, check if email is inside
                 const contentInsideBrackets = valueSection.slice(angleBracketStart + 1, angleBracketEnd);
                 const emailIndexInBrackets = contentInsideBrackets.indexOf(fieldValue);
-                
+
                 if (emailIndexInBrackets >= 0) {
                   // Email is inside brackets - position is after the <
                   actualValueStart = lineStart + colonIndex + 1 + angleBracketStart + 1 + emailIndexInBrackets;
@@ -1562,7 +1560,7 @@ export default function EmailCard({
         // For other fields (time, subject), use the header line pattern approach
         // Escape special regex characters in field value
         const escapedValue = fieldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        
+
         // Search for header line: "HeaderName: value" (allowing for whitespace)
         const headerPattern = new RegExp(
           `^${headerFieldName}\\s*:\\s*${escapedValue}`,
@@ -1588,7 +1586,7 @@ export default function EmailCard({
           // Fallback: search for header line and then find value within it
           const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
           const headerLineMatch = headerLinePattern.exec(headersSection);
-          
+
           if (headerLineMatch) {
             const lineStart = headerLineMatch.index;
             const line = headerLineMatch[0];
@@ -1679,6 +1677,9 @@ export default function EmailCard({
         const valueStart = headerStart + headerPrefix.length;
 
         // End is at the next line break (\r\n or \n) or end of headers
+        // NOTE: Line breaks are the correct approach per RFC 5322 (email format) and RFC 6376 (DKIM).
+        // Email headers are line-delimited by spec. We can't split upfront because we need
+        // exact byte positions for mask bit mapping.
         let valueEnd = canonicalizedHeaders.indexOf('\r\n', valueStart);
         if (valueEnd < 0) {
           // Try just \n (some systems use LF only)
@@ -1714,10 +1715,15 @@ export default function EmailCard({
         console.log(`[HEADER MASK] ${fieldName}: field value to find: "${fieldValue}"`);
 
         // Robust search: try multiple strategies to find the field value
+        // These are FALLBACK strategies - each is only tried if the previous one failed.
+        // This handles variations in how email addresses appear in headers:
+        // - Exact match works for simple cases
+        // - Case-insensitive handles DKIM canonicalization lowercasing
+        // - Angle brackets handles "Display Name" <email@example.com> format
         let fieldValuePos = -1;
         let actualValueInHeader = fieldValue;
 
-        // Strategy 1: Exact match
+        // Strategy 1: Exact match (always tried first)
         fieldValuePos = headerLineContent.indexOf(fieldValue);
 
         // Strategy 2: Case-insensitive match (for email addresses)
