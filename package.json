@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
-    "setup-cors": "node server/setup-cors.js"
+    "setup-cors": "node server/setup-cors.js",
+    "compile:circuits": "npx tsx scripts/compile-circuits.ts"
   },
   "dependencies": {
     "@aztec/bb.js": "0.84.0",
@@ -43,6 +44,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.3",
     "vite": "^7.2.2"
