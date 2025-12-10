@@ -2114,7 +2114,7 @@ export default function EmailCard({
           ></div>
           {showMaskButton && currentSelection && (
             <div
-              className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit"
+              className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
               style={{
                 left: `${maskButtonPosition.x}px`,
                 top: `${maskButtonPosition.y}px`,
@@ -2123,7 +2123,7 @@ export default function EmailCard({
               <button
                 type="button"
                 onClick={handleMaskSelection}
-                className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2]hover:text-white rounded-lg transition-colors ${
+                className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2] hover:text-white rounded-lg transition-colors ${
                   currentSelection.maskState === "unmasked" ||
                   currentSelection.maskState === "partial"
                     ? "text-[#111314]"

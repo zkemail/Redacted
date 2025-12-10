@@ -276,8 +276,10 @@ export default function EmailField({
     if (disableSelectionMasking) {
       return;
     }
+
     const container = fieldRef.current;
     if (!container) return;
+
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) {
       setShowMaskButton(false);
@@ -302,7 +304,7 @@ export default function EmailField({
       return;
     }
 
-    // Set active selection state immediately for visual feedback
+    // Set active selection state after validation passes
     setHasActiveSelection(true);
 
     // Calculate selection offsets
@@ -339,7 +341,7 @@ export default function EmailField({
       // Restrict selection to maskable range (name part only)
       selectionStart = Math.max(selectionStart, maskableRange.start);
       selectionEnd = Math.min(selectionEnd, maskableRange.end);
-      
+
       // If selection was adjusted, update the actual selection range
       if (selectionStart !== rangeToStart.toString().length || selectionEnd !== rangeToEnd.toString().length) {
         // Try to adjust the selection to only include the name part
@@ -570,7 +572,7 @@ export default function EmailField({
       {/* Mask/Unmask dropdown menu */}
       {showMaskButton && currentSelection && (
         <div
-          className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit"
+          className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
           style={{
             left: `${maskButtonPosition.x}px`,
             top: `${maskButtonPosition.y}px`,
