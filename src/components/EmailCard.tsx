@@ -124,48 +124,37 @@ export default function EmailCard({
       : initialBodyBits
   );
 
-  // Update mask bits based on maskedFields prop
-  // BUT: If initialMaskBits is provided, don't overwrite them (for verify page)
+  // Track previous maskedFields so we only touch the field that changed
+  const prevMaskedFieldsRef = useRef<Set<string>>(new Set());
+
+  // Update mask bits when a field's masked/unmasked toggle changes
+  // Avoid overwriting user selections on other fields.
   useEffect(() => {
     // Skip if initialMaskBits is provided (verify page uses initialMaskBits directly)
     if (initialMaskBits) {
       return;
     }
 
-    // Update from mask bits - circuit-aligned: 0 = hide, 1 = reveal
-    if (maskedFields.has("from")) {
-      setFromMaskBits(new Array(email.from.length).fill(0));
-    } else {
-      setFromMaskBits(new Array(email.from.length).fill(1));
-    }
+    const prev = prevMaskedFieldsRef.current;
+    const updateField = (
+      fieldKey: string,
+      length: number,
+      setter: (bits: number[]) => void
+    ) => {
+      const wasMasked = prev.has(fieldKey);
+      const isMaskedNow = maskedFields.has(fieldKey);
+      if (wasMasked === isMaskedNow) return;
+      // Circuit-aligned: 0 = hide, 1 = reveal
+      setter(new Array(length).fill(isMaskedNow ? 0 : 1));
+    };
 
-    // Update to mask bits
-    if (maskedFields.has("to")) {
-      setToMaskBits(new Array(email.to.length).fill(0));
-    } else {
-      setToMaskBits(new Array(email.to.length).fill(1));
-    }
+    updateField("from", email.from.length, setFromMaskBits);
+    updateField("to", email.to.length, setToMaskBits);
+    updateField("time", email.time.length, setTimeMaskBits);
+    updateField("subject", email.subject.length, setSubjectMaskBits);
+    updateField("body", bodyText.length, setBodyMaskBits);
 
-    // Update time mask bits
-    if (maskedFields.has("time")) {
-      setTimeMaskBits(new Array(email.time.length).fill(0));
-    } else {
-      setTimeMaskBits(new Array(email.time.length).fill(1));
-    }
-
-    // Update subject mask bits
-    if (maskedFields.has("subject")) {
-      setSubjectMaskBits(new Array(email.subject.length).fill(0));
-    } else {
-      setSubjectMaskBits(new Array(email.subject.length).fill(1));
-    }
-
-    // Update body mask bits
-    if (maskedFields.has("body")) {
-      setBodyMaskBits(new Array(bodyText.length).fill(0));
-    } else {
-      setBodyMaskBits(new Array(bodyText.length).fill(1));
-    }
+    prevMaskedFieldsRef.current = new Set(maskedFields);
   }, [maskedFields, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length, initialMaskBits]);
 
   // Update mask bits when initialMaskBits changes (for verify page)
