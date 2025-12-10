@@ -3,10 +3,10 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from "react";
 
 interface EmailFieldProps {
@@ -19,98 +19,6 @@ interface EmailFieldProps {
   restrictToNameOnly?: boolean; // For "From" field, only allow masking name part (before @)
   disableSelectionMasking?: boolean;
   useBlackMask?: boolean;
-}
-
-// Component to highlight selected text using Range API
-function SelectionHighlight({
-  containerRef,
-  isActive,
-}: {
-  containerRef: RefObject<HTMLSpanElement | null>;
-  isActive: boolean;
-}) {
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!isActive || !containerRef.current) {
-      return;
-    }
-
-    const updatePosition = () => {
-      if (!isActive || !containerRef.current) {
-        return;
-      }
-
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        setPosition(null);
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      const container = containerRef.current;
-      if (!container) return;
-
-      // Check if selection is within our container
-      if (!container.contains(range.commonAncestorContainer)) {
-        setPosition(null);
-        return;
-      }
-
-      const rect = range.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-
-      // Calculate position relative to container
-      const top = rect.top - containerRect.top + container.scrollTop;
-      const left = rect.left - containerRect.left;
-      const width = rect.width;
-      const height = rect.height;
-
-      setPosition({ top, left, width, height });
-    };
-
-    // Update immediately
-    updatePosition();
-
-    // Update on selection change
-    const handleSelectionChange = () => {
-      updatePosition();
-    };
-
-    // Update on scroll
-    const handleScroll = () => {
-      updatePosition();
-    };
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-    const container = containerRef.current;
-    container.addEventListener("scroll", handleScroll);
-
-    return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
-      container.removeEventListener("scroll", handleScroll);
-    };
-  }, [containerRef, isActive]);
-
-  if (!position || !isActive) return null;
-
-  return (
-    <div
-      className="absolute pointer-events-none bg-[#5e6ad2]/40 border-2 border-[#5e6ad2]/70 rounded-sm transition-all duration-200 shadow-lg"
-      style={{
-        top: `${position.top}px`,
-        left: `${position.left}px`,
-        width: `${position.width}px`,
-        height: `${position.height}px`,
-        zIndex: 1,
-      }}
-    />
-  );
 }
 
 export default function EmailField({
@@ -136,6 +44,10 @@ export default function EmailField({
     maskState: "masked" | "unmasked" | "partial";
   } | null>(null);
   const [hasActiveSelection, setHasActiveSelection] = useState(false);
+
+  // Refs to save selection for restoration after re-render
+  const savedSelectionRangeRef = useRef<Range | null>(null);
+  const savedSelectionOffsetsRef = useRef<{ start: number; end: number } | null>(null);
 
   // Calculate the maskable range (for "From" field, only before @)
   const maskableRange = useMemo(() => {
@@ -390,6 +302,11 @@ export default function EmailField({
     const x = rect.right - containerRect.left;
     const y = rect.bottom - containerRect.top + 6;
 
+    // Save selection before state updates to restore after re-render
+    const clonedRange = range.cloneRange();
+    savedSelectionRangeRef.current = clonedRange;
+    savedSelectionOffsetsRef.current = { start: selectionStart, end: selectionEnd };
+
     setMaskButtonPosition({ x, y });
     setCurrentSelection({
       start: selectionStart,
@@ -399,11 +316,93 @@ export default function EmailField({
     setShowMaskButton(true);
   }, [value.length, localMaskBits, restrictToNameOnly, maskableRange, disableSelectionMasking]);
 
+  // Helper function to restore selection from text offsets
+  const restoreSelectionFromOffsets = useCallback((start: number, end: number) => {
+    const container = fieldRef.current;
+    if (!container) return false;
+
+    try {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+      let currentOffset = 0;
+      let startNode: Node | null = null;
+      let startOffset = 0;
+      let endNode: Node | null = null;
+      let endOffset = 0;
+
+      let node = walker.nextNode();
+      while (node) {
+        const textLength = node.textContent?.length || 0;
+        const nodeStart = currentOffset;
+        const nodeEnd = currentOffset + textLength;
+
+        if (!startNode && start >= nodeStart && start <= nodeEnd) {
+          startNode = node;
+          startOffset = start - nodeStart;
+        }
+        if (!endNode && end >= nodeStart && end <= nodeEnd) {
+          endNode = node;
+          endOffset = end - nodeStart;
+        }
+        if (startNode && endNode) break;
+        currentOffset = nodeEnd;
+        node = walker.nextNode();
+      }
+
+      if (startNode && endNode) {
+        const selection = window.getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.setStart(startNode, startOffset);
+          range.setEnd(endNode, endOffset);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return true;
+        }
+      }
+    } catch {
+      // Error restoring selection
+    }
+    return false;
+  }, []);
+
+  // Restore selection after DOM update when showMaskButton becomes true
+  useLayoutEffect(() => {
+    const savedRange = savedSelectionRangeRef.current;
+    const offsets = savedSelectionOffsetsRef.current;
+
+    if (!showMaskButton || !savedRange || !offsets) return;
+
+    const container = fieldRef.current;
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+      const selection = window.getSelection();
+      if (selection) {
+        try {
+          const isStartInContainer = !!savedRange.startContainer && container.contains(savedRange.startContainer);
+          const isEndInContainer = !!savedRange.endContainer && container.contains(savedRange.endContainer);
+          const isTextNode = savedRange.startContainer?.nodeType === Node.TEXT_NODE && savedRange.endContainer?.nodeType === Node.TEXT_NODE;
+
+          if (isStartInContainer && isEndInContainer && isTextNode) {
+            selection.removeAllRanges();
+            selection.addRange(savedRange);
+            if (savedRange.toString().length > 0) return;
+          }
+        } catch {
+          // Fall through to offset-based restoration
+        }
+      }
+      restoreSelectionFromOffsets(offsets.start, offsets.end);
+    });
+  }, [showMaskButton, restoreSelectionFromOffsets]);
+
   const handleMaskSelection = useCallback(() => {
     if (!currentSelection || !onMaskBitsChange) return;
     const { start, end } = currentSelection;
 
-    // Clear selection highlight when mask is applied
+    // Clear selection and saved refs when mask is applied
+    savedSelectionRangeRef.current = null;
+    savedSelectionOffsetsRef.current = null;
     setHasActiveSelection(false);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
@@ -438,7 +437,9 @@ export default function EmailField({
     if (!currentSelection || !onMaskBitsChange) return;
     const { start, end } = currentSelection;
 
-    // Clear selection highlight when unmask is applied
+    // Clear selection and saved refs when unmask is applied
+    savedSelectionRangeRef.current = null;
+    savedSelectionOffsetsRef.current = null;
     setHasActiveSelection(false);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
@@ -520,6 +521,8 @@ export default function EmailField({
         onMouseUp={handleMouseUp}
         onMouseDown={() => {
           if (hasActiveSelection) {
+            savedSelectionRangeRef.current = null;
+            savedSelectionOffsetsRef.current = null;
             setHasActiveSelection(false);
             setShowMaskButton(false);
             setCurrentSelection(null);
@@ -562,13 +565,7 @@ export default function EmailField({
           </span>
         </button>
       )}
-      
-      {/* Selection highlight overlay */}
-      <SelectionHighlight
-        containerRef={fieldRef}
-        isActive={hasActiveSelection}
-      />
-      
+
       {/* Mask/Unmask dropdown menu */}
       {showMaskButton && currentSelection && (
         <div
