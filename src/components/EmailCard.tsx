@@ -34,6 +34,8 @@ interface EmailCardProps {
     bodyText: string;
     bodyHtml?: string;
     originalEml?: string; // Original EML file content
+    dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
+    dkimCanonicalizedBody?: string; // DKIM-canonicalized body for accurate body masking
     ranges?: {
       from?: { rawStart: number; displayOffset: number; displayLength: number };
       to?: { rawStart: number; displayOffset: number; displayLength: number };
@@ -74,24 +76,25 @@ export default function EmailCard({
   const bodyText = email.bodyText ?? "";
 
   // Mask bits for all fields - use useMemo to compute initial values
+  // Circuit-aligned semantics: 1 = reveal, 0 = mask
   const initialFromBits = useMemo(
-    () => new Array(email.from.length).fill(0),
+    () => new Array(email.from.length).fill(1),
     [email.from.length]
   );
   const initialToBits = useMemo(
-    () => new Array(email.to.length).fill(0),
+    () => new Array(email.to.length).fill(1),
     [email.to.length]
   );
   const initialTimeBits = useMemo(
-    () => new Array(email.time.length).fill(0),
+    () => new Array(email.time.length).fill(1),
     [email.time.length]
   );
   const initialSubjectBits = useMemo(
-    () => new Array(email.subject.length).fill(0),
+    () => new Array(email.subject.length).fill(1),
     [email.subject.length]
   );
   const initialBodyBits = useMemo(
-    () => new Array(bodyText.length).fill(0),
+    () => new Array(bodyText.length).fill(1),
     [bodyText.length]
   );
 
@@ -128,47 +131,47 @@ export default function EmailCard({
     if (initialMaskBits) {
       return;
     }
-    
-    // Update from mask bits
+
+    // Update from mask bits - circuit-aligned: 0 = hide, 1 = reveal
     if (maskedFields.has("from")) {
-      setFromMaskBits(new Array(email.from.length).fill(1));
-    } else {
       setFromMaskBits(new Array(email.from.length).fill(0));
+    } else {
+      setFromMaskBits(new Array(email.from.length).fill(1));
     }
-    
+
     // Update to mask bits
     if (maskedFields.has("to")) {
-      setToMaskBits(new Array(email.to.length).fill(1));
-    } else {
       setToMaskBits(new Array(email.to.length).fill(0));
+    } else {
+      setToMaskBits(new Array(email.to.length).fill(1));
     }
-    
+
     // Update time mask bits
     if (maskedFields.has("time")) {
-      setTimeMaskBits(new Array(email.time.length).fill(1));
-    } else {
       setTimeMaskBits(new Array(email.time.length).fill(0));
+    } else {
+      setTimeMaskBits(new Array(email.time.length).fill(1));
     }
-    
+
     // Update subject mask bits
     if (maskedFields.has("subject")) {
-      setSubjectMaskBits(new Array(email.subject.length).fill(1));
-    } else {
       setSubjectMaskBits(new Array(email.subject.length).fill(0));
+    } else {
+      setSubjectMaskBits(new Array(email.subject.length).fill(1));
     }
-    
+
     // Update body mask bits
     if (maskedFields.has("body")) {
-      setBodyMaskBits(new Array(bodyText.length).fill(1));
-    } else {
       setBodyMaskBits(new Array(bodyText.length).fill(0));
+    } else {
+      setBodyMaskBits(new Array(bodyText.length).fill(1));
     }
   }, [maskedFields, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length, initialMaskBits]);
 
   // Update mask bits when initialMaskBits changes (for verify page)
   useEffect(() => {
     if (!initialMaskBits) return;
-    
+
     if (initialMaskBits.fromMaskBits && initialMaskBits.fromMaskBits.length === email.from.length) {
       setFromMaskBits(initialMaskBits.fromMaskBits);
     }
@@ -212,7 +215,7 @@ export default function EmailCard({
       bodyMaskBits: initialBodyBits,
     },
   ]);
-  
+
   // Keep refs in sync with state and update button states
   useEffect(() => {
     historyIndexRef.current = historyIndex;
@@ -240,12 +243,13 @@ export default function EmailCard({
     if (prevEmailKeyRef.current !== emailKey) {
       prevEmailKeyRef.current = emailKey;
       // Use setTimeout to batch updates and avoid synchronous setState warning
+      // Circuit-aligned semantics: 1 = reveal (all revealed by default)
       const resetState: MaskBitsState = {
-        fromMaskBits: new Array(email.from.length).fill(0),
-        toMaskBits: new Array(email.to.length).fill(0),
-        timeMaskBits: new Array(email.time.length).fill(0),
-        subjectMaskBits: new Array(email.subject.length).fill(0),
-        bodyMaskBits: new Array(bodyText.length).fill(0),
+        fromMaskBits: new Array(email.from.length).fill(1),
+        toMaskBits: new Array(email.to.length).fill(1),
+        timeMaskBits: new Array(email.time.length).fill(1),
+        subjectMaskBits: new Array(email.subject.length).fill(1),
+        bodyMaskBits: new Array(bodyText.length).fill(1),
       };
       setTimeout(() => {
         setFromMaskBits(resetState.fromMaskBits);
@@ -274,12 +278,13 @@ export default function EmailCard({
 
   // Helper function to get current mask bits state
   const getCurrentMaskBitsState = useCallback((): MaskBitsState => {
+    // Circuit-aligned: default to revealed (1) if length mismatch
     return {
-      fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-      toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-      timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-      subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
-      bodyMaskBits: bodyMaskBits.length === bodyText.length ? [...bodyMaskBits] : new Array(bodyText.length).fill(0),
+      fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+      toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+      timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+      subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
+      bodyMaskBits: bodyMaskBits.length === bodyText.length ? [...bodyMaskBits] : new Array(bodyText.length).fill(1),
     };
   }, [fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, bodyMaskBits, email.from.length, email.to.length, email.time.length, email.subject.length, bodyText.length]);
 
@@ -290,20 +295,20 @@ export default function EmailCard({
     if (stateKey === lastSavedStateRef.current) {
       return; // This state was already saved, skip
     }
-    
+
     // Don't save if we're currently saving or restoring
     if (isSavingHistoryRef.current) {
       return;
     }
-    
+
     if (isRestoringFromHistoryRef.current) {
       return;
     }
-    
+
     // Mark that we're saving IMMEDIATELY (synchronously) to prevent race conditions
     isSavingHistoryRef.current = true;
     lastSavedStateRef.current = stateKey;
-    
+
     setHistory((prevHistory) => {
       const currentIndex = historyIndexRef.current;
       // Remove any future history if we're not at the end (user made a new change after undoing)
@@ -314,20 +319,20 @@ export default function EmailCard({
       // Limit history size to prevent memory issues (keep last 50 states)
       const finalHistory = newHistory.length > 50 ? newHistory.slice(-50) : newHistory;
       const newIndex = finalHistory.length - 1;
-      
+
       // Update history length ref and history ref
       historyLengthRef.current = finalHistory.length;
       historyRef.current = finalHistory;
-      
+
       // Update history index to point to the new state
       setHistoryIndex(newIndex);
       historyIndexRef.current = newIndex;
-      
+
       // Clear the saving flag after state update completes
       setTimeout(() => {
         isSavingHistoryRef.current = false;
       }, 50); // Increased delay to ensure state update completes
-      
+
       return finalHistory;
     });
   }, []);
@@ -340,13 +345,13 @@ export default function EmailCard({
     lastSavedStateRef.current = JSON.stringify(state);
     // Clear any pending saves
     pendingHistorySaveRef.current = null;
-    
+
     setFromMaskBits([...state.fromMaskBits]);
     setToMaskBits([...state.toMaskBits]);
     setTimeMaskBits([...state.timeMaskBits]);
     setSubjectMaskBits([...state.subjectMaskBits]);
     setBodyMaskBits([...state.bodyMaskBits]);
-    
+
     // Clear the flag after a longer delay to ensure all state updates complete
     // React batches state updates, so we need to wait for all of them
     setTimeout(() => {
@@ -361,16 +366,16 @@ export default function EmailCard({
     if (isUndoRedoInProgressRef.current) {
       return;
     }
-    
+
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex > 0 && currentHistory.length > 0) {
       const newIndex = currentIndex - 1;
       const stateToRestore = currentHistory[newIndex];
       if (stateToRestore) {
         isUndoRedoInProgressRef.current = true;
-        
+
         // Update index synchronously before restoring
         historyIndexRef.current = newIndex;
         setHistoryIndex(newIndex);
@@ -386,16 +391,16 @@ export default function EmailCard({
     if (isUndoRedoInProgressRef.current) {
       return;
     }
-    
+
     const currentIndex = historyIndexRef.current;
     const currentHistory = historyRef.current;
-    
+
     if (currentIndex < currentHistory.length - 1 && currentHistory.length > 0) {
       const newIndex = currentIndex + 1;
       const stateToRestore = currentHistory[newIndex];
       if (stateToRestore) {
         isUndoRedoInProgressRef.current = true;
-        
+
         // Update index synchronously before restoring
         historyIndexRef.current = newIndex;
         setHistoryIndex(newIndex);
@@ -422,18 +427,18 @@ export default function EmailCard({
       }
       return;
     }
-    
+
     // Only process if we have a pending save
     const pendingSave = pendingHistorySaveRef.current;
     if (!pendingSave) {
       return;
     }
-    
+
     // Clear pending save immediately to prevent processing it multiple times
     pendingHistorySaveRef.current = null;
-    
+
     const { field, newBits } = pendingSave;
-    
+
     // Get the current state (which now includes the updated field)
     const newState = getCurrentMaskBitsState();
     // Ensure the field we just updated is correctly set
@@ -446,7 +451,7 @@ export default function EmailCard({
     } else if (field === 'subject') {
       newState.subjectMaskBits = newBits;
     }
-    
+
     // Create a key to avoid duplicate saves
     const stateKey = JSON.stringify(newState);
     if (stateKey !== lastSavedStateRef.current) {
@@ -460,9 +465,9 @@ export default function EmailCard({
   const setFromMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     // Apply the change first
     setFromMaskBits(bits);
-    // Calculate what the new bits will be
-    const newBits = typeof bits === 'function' 
-      ? bits(fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0))
+    // Calculate what the new bits will be (default to revealed=1 if length mismatch)
+    const newBits = typeof bits === 'function'
+      ? bits(fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1))
       : bits;
     // Mark that we need to save history after the state updates
     pendingHistorySaveRef.current = { field: 'from', newBits };
@@ -471,7 +476,7 @@ export default function EmailCard({
   const setToMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setToMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0))
+      ? bits(toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'to', newBits };
   }, [toMaskBits, email.to.length]);
@@ -479,7 +484,7 @@ export default function EmailCard({
   const setTimeMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setTimeMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0))
+      ? bits(timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'time', newBits };
   }, [timeMaskBits, email.time.length]);
@@ -487,7 +492,7 @@ export default function EmailCard({
   const setSubjectMaskBitsWithHistory = useCallback((bits: number[] | ((prev: number[]) => number[])) => {
     setSubjectMaskBits(bits);
     const newBits = typeof bits === 'function'
-      ? bits(subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0))
+      ? bits(subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1))
       : bits;
     pendingHistorySaveRef.current = { field: 'subject', newBits };
   }, [subjectMaskBits, email.subject.length]);
@@ -509,13 +514,14 @@ export default function EmailCard({
       prevResetTriggerRef.current !== resetTrigger
     ) {
       prevResetTriggerRef.current = resetTrigger;
-      // Reset all mask bits to initial state (all zeros)
+      // Reset all mask bits to initial state (all ones = revealed)
+      // Circuit-aligned semantics: 1 = reveal
       const resetState: MaskBitsState = {
-        fromMaskBits: new Array(email.from.length).fill(0),
-        toMaskBits: new Array(email.to.length).fill(0),
-        timeMaskBits: new Array(email.time.length).fill(0),
-        subjectMaskBits: new Array(email.subject.length).fill(0),
-        bodyMaskBits: new Array(bodyText.length).fill(0),
+        fromMaskBits: new Array(email.from.length).fill(1),
+        toMaskBits: new Array(email.to.length).fill(1),
+        timeMaskBits: new Array(email.time.length).fill(1),
+        subjectMaskBits: new Array(email.subject.length).fill(1),
+        bodyMaskBits: new Array(bodyText.length).fill(1),
       };
       setTimeout(() => {
         setFromMaskBits(resetState.fromMaskBits);
@@ -580,7 +586,7 @@ export default function EmailCard({
         }
         const segment = text.slice(index, end);
         const escapedSegment = escapeHtml(segment);
-        if (currentMask === 1) {
+        if (currentMask === 0) {
           if (useBlackMask) {
             // Solid black mask - completely hides the text
             // Use inline styles to ensure the black background is applied
@@ -720,16 +726,16 @@ export default function EmailCard({
       try {
         const parser = new window.DOMParser();
         const doc = parser.parseFromString(html, "text/html");
-        
+
         // Try to find the body element first, otherwise use the document body or create a container
         let container: Element | null = doc.body;
-        
+
         // If there's no body or body is empty, try to find the main content
         if (!container || container.textContent?.trim().length === 0) {
           // Try to find a div or other container with actual content
           container = doc.querySelector('body > *') || doc.documentElement;
         }
-        
+
         // If still no container, wrap the HTML in a div
         if (!container) {
           const wrapper = doc.createElement('div');
@@ -740,12 +746,12 @@ export default function EmailCard({
         // First, extract plain text from HTML to compare with bodyText
         const htmlPlainText = container.textContent || '';
         const htmlTextLength = htmlPlainText.length;
-        
+
 
         // Try to find where bodyText appears in the HTML plain text
         // Try exact match first
         let bodyTextStartPos = htmlPlainText.indexOf(bodyText);
-        
+
         // If exact match not found, try to find a substring match
         // (bodyText might have whitespace differences)
         if (bodyTextStartPos < 0 && bodyText.length > 0) {
@@ -758,20 +764,49 @@ export default function EmailCard({
           }
         }
 
+        // If still not found, try aligning by leading whitespace difference
+        // htmlPlainText might have leading whitespace that bodyText doesn't have
+        if (bodyTextStartPos < 0 && bodyText.length > 0) {
+          // Count leading whitespace in htmlPlainText
+          let htmlLeadingWs = 0;
+          while (htmlLeadingWs < htmlPlainText.length &&
+                 (htmlPlainText[htmlLeadingWs] === ' ' ||
+                  htmlPlainText[htmlLeadingWs] === '\n' ||
+                  htmlPlainText[htmlLeadingWs] === '\r' ||
+                  htmlPlainText[htmlLeadingWs] === '\t')) {
+            htmlLeadingWs++;
+          }
+
+          // Count leading whitespace in bodyText
+          let bodyLeadingWs = 0;
+          while (bodyLeadingWs < bodyText.length &&
+                 (bodyText[bodyLeadingWs] === ' ' ||
+                  bodyText[bodyLeadingWs] === '\n' ||
+                  bodyText[bodyLeadingWs] === '\r' ||
+                  bodyText[bodyLeadingWs] === '\t')) {
+            bodyLeadingWs++;
+          }
+
+          // If htmlPlainText has more leading whitespace, that's our offset
+          if (htmlLeadingWs > bodyLeadingWs) {
+            bodyTextStartPos = htmlLeadingWs - bodyLeadingWs;
+          }
+        }
 
         // If HTML text is longer than bodyText, we need to expand the bits array
         // to match the HTML text length. We'll map bodyText positions to HTML positions.
         // For positions beyond bodyText.length, we'll use 0 (unmasked).
         let expandedBits: number[];
-        
+
         if (htmlTextLength <= bodyText.length) {
           // HTML text is shorter or equal, use bits as-is (truncated if needed)
           expandedBits = bits.slice(0, htmlTextLength);
         } else {
           // HTML text is longer - expand bits array to match HTML length
           // Map bodyText positions to HTML positions
-          expandedBits = new Array(htmlTextLength).fill(0);
-          
+          // Default to revealed (1) for unmatched positions
+          expandedBits = new Array(htmlTextLength).fill(1);
+
           if (bodyTextStartPos >= 0) {
             // Found bodyText at position bodyTextStartPos in HTML
             // Map bits to that position
@@ -809,7 +844,7 @@ export default function EmailCard({
         for (let nodeIdx = 0; nodeIdx < textNodes.length; nodeIdx++) {
           const currentNode = textNodes[nodeIdx];
           const nodeText = currentNode.textContent ?? "";
-          
+
 
           if (nodeText.length > 0) {
             const fragments: Node[] = [];
@@ -822,7 +857,7 @@ export default function EmailCard({
                 fragments.push(doc.createTextNode(nodeText.slice(localIndex)));
                 break;
               }
-              
+
               const currentMask = expandedBits[globalIndex] ?? 0;
               let segmentEnd = localIndex;
               while (
@@ -834,7 +869,7 @@ export default function EmailCard({
                 segmentEnd += 1;
               }
               const segmentText = nodeText.slice(localIndex, segmentEnd);
-              if (currentMask === 1) {
+              if (currentMask === 0) {
                 const span = doc.createElement("span");
                 if (useBlackMask) {
                   span.style.backgroundColor = "#000000";
@@ -868,8 +903,8 @@ export default function EmailCard({
         } else {
           processedHtml = container.innerHTML;
         }
-        
-        
+
+
         // Scope the HTML content to prevent style leakage
         return scopeHtmlContent(processedHtml, "email-body-scoped");
       } catch (error) {
@@ -888,14 +923,22 @@ export default function EmailCard({
 
   const maskedBodyHtml = useMemo(() => {
     // Ensure bodyMaskBits has the correct length
-    const bits = bodyMaskBits.length === bodyText.length 
-      ? bodyMaskBits 
-      : new Array(bodyText.length).fill(0);
-    
+    // Default to revealed (1) if length mismatch
+    const bits = bodyMaskBits.length === bodyText.length
+      ? bodyMaskBits
+      : new Array(bodyText.length).fill(1);
+
+    // Prioritize plain text rendering to avoid coordinate space mismatch
+    // between HTML content and bodyText (used for mask bits).
+    // For multipart emails, bodyText and bodyHtml are independent MIME parts
+    // with potentially different content, causing selection offset issues.
+    if (bodyText) {
+      return createMaskedHtmlFromPlainText(bodyText, bits);
+    }
     if (email.bodyHtml) {
       return createMaskedHtmlFromHtml(email.bodyHtml, bits);
     }
-    return createMaskedHtmlFromPlainText(bodyText, bits);
+    return '';
   }, [
     email.bodyHtml,
     bodyText,
@@ -956,6 +999,23 @@ export default function EmailCard({
     rangeToEnd.setEnd(range.endContainer, range.endOffset);
     let selectionEnd = rangeToEnd.toString().length;
 
+    // Fix: Account for leading whitespace difference between container DOM and bodyText
+    // The container's textContent may have leading newlines from HTML structure
+    // that don't exist in the original bodyText
+    const containerText = container.textContent || '';
+    let leadingOffset = 0;
+    // Count leading whitespace in container that doesn't exist in bodyText
+    while (leadingOffset < containerText.length &&
+           leadingOffset < selectionStart &&
+           (containerText[leadingOffset] === '\n' || containerText[leadingOffset] === '\r') &&
+           (leadingOffset >= bodyText.length || containerText[leadingOffset] !== bodyText[leadingOffset])) {
+      leadingOffset++;
+    }
+
+    // Adjust selection positions by subtracting the leading offset
+    selectionStart = selectionStart - leadingOffset;
+    selectionEnd = selectionEnd - leadingOffset;
+
     if (selectionStart > selectionEnd) {
       [selectionStart, selectionEnd] = [selectionEnd, selectionStart];
     }
@@ -970,9 +1030,10 @@ export default function EmailCard({
     }
 
     // Ensure bodyMaskBits has the correct length
-    const currentBodyMaskBits = bodyMaskBits.length === bodyText.length 
-      ? bodyMaskBits 
-      : new Array(bodyText.length).fill(0);
+    // Default to revealed (1) if length mismatch
+    const currentBodyMaskBits = bodyMaskBits.length === bodyText.length
+      ? bodyMaskBits
+      : new Array(bodyText.length).fill(1);
 
     const selectionBits = currentBodyMaskBits.slice(selectionStart, selectionEnd);
     if (selectionBits.length === 0) {
@@ -980,8 +1041,8 @@ export default function EmailCard({
       return;
     }
 
-    const allMasked = selectionBits.every((bit) => bit === 1);
-    const allUnmasked = selectionBits.every((bit) => bit === 0);
+    const allMasked = selectionBits.every((bit) => bit === 0);
+    const allUnmasked = selectionBits.every((bit) => bit === 1);
 
     let maskStateForSelection: SelectionInfo["maskState"] = "partial";
     if (allMasked) {
@@ -1064,7 +1125,7 @@ export default function EmailCard({
           range.setEnd(endNode, endOffset);
           selection.removeAllRanges();
           selection.addRange(range);
-          
+
           return true;
         }
       }
@@ -1124,31 +1185,33 @@ export default function EmailCard({
       return;
     }
     const { start, end } = currentSelection;
-    
+
     // Clear browser selection and our selection state when mask is applied
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
-    
+
     setBodyMaskBits((prev) => {
       // Always create a new array to ensure React detects the change
+      // Default to revealed (1) if length mismatch
       const next =
         prev.length === bodyText.length
           ? [...prev]
-          : new Array(bodyText.length).fill(0);
+          : new Array(bodyText.length).fill(1);
       const boundedStart = Math.max(0, Math.min(start, bodyText.length));
       const boundedEnd = Math.max(boundedStart, Math.min(end, bodyText.length));
-      
+
+      // Circuit-aligned: 0 = mask/hide
       for (let i = boundedStart; i < boundedEnd; i++) {
-        next[i] = 1;
+        next[i] = 0;
       }
-      
+
       // Save the NEW state to history after the change
       // Construct the new state with the updated bodyMaskBits
       const newState: MaskBitsState = {
-        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
+        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
         bodyMaskBits: next,
       };
       // Check if we should save (avoid duplicates and don't save during restoration)
@@ -1160,7 +1223,7 @@ export default function EmailCard({
           saveToHistory(newState);
         }, 0);
       }
-      
+
       return next;
     });
     clearSelectionState();
@@ -1171,31 +1234,33 @@ export default function EmailCard({
       return;
     }
     const { start, end } = currentSelection;
-    
+
     // Clear browser selection and our selection state when unmask is applied
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
-    
+
     setBodyMaskBits((prev) => {
       // Always create a new array to ensure React detects the change
+      // Default to revealed (1) if length mismatch
       const next =
         prev.length === bodyText.length
           ? [...prev]
-          : new Array(bodyText.length).fill(0);
+          : new Array(bodyText.length).fill(1);
       const boundedStart = Math.max(0, Math.min(start, bodyText.length));
       const boundedEnd = Math.max(boundedStart, Math.min(end, bodyText.length));
-      
+
+      // Circuit-aligned: 1 = reveal/unmask
       for (let i = boundedStart; i < boundedEnd; i++) {
-        next[i] = 0;
+        next[i] = 1;
       }
-      
+
       // Save the NEW state to history after the change
       // Construct the new state with the updated bodyMaskBits
       const newState: MaskBitsState = {
-        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(0),
-        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(0),
-        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(0),
-        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(0),
+        fromMaskBits: fromMaskBits.length === email.from.length ? [...fromMaskBits] : new Array(email.from.length).fill(1),
+        toMaskBits: toMaskBits.length === email.to.length ? [...toMaskBits] : new Array(email.to.length).fill(1),
+        timeMaskBits: timeMaskBits.length === email.time.length ? [...timeMaskBits] : new Array(email.time.length).fill(1),
+        subjectMaskBits: subjectMaskBits.length === email.subject.length ? [...subjectMaskBits] : new Array(email.subject.length).fill(1),
         bodyMaskBits: next,
       };
       // Check if we should save (avoid duplicates and don't save during restoration)
@@ -1207,31 +1272,162 @@ export default function EmailCard({
           saveToHistory(newState);
         }, 0);
       }
-      
+
       return next;
     });
     clearSelectionState();
   }, [currentSelection, bodyText, bodyMaskBits.length, fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits, email.from.length, email.to.length, email.time.length, email.subject.length, saveToHistory, clearSelectionState]);
 
+  /**
+   * Removes all soft line breaks (=\r\n and =\n) from text while maintaining
+   * a position map from cleaned positions back to original positions.
+   *
+   * @param text - The text to clean
+   * @returns Object with cleaned text and position map
+   */
+  function removeAllSoftLineBreaks(text: string): {
+    cleaned: string;
+    positionMap: Map<number, number>; // cleaned position -> original position
+  } {
+    const positionMap = new Map<number, number>();
+    let cleaned = '';
+    let originalPos = 0;
+    let cleanedPos = 0;
+
+    while (originalPos < text.length) {
+      // Check for =\r\n soft break (3 chars)
+      if (
+        originalPos + 2 < text.length &&
+        text[originalPos] === '=' &&
+        text[originalPos + 1] === '\r' &&
+        text[originalPos + 2] === '\n'
+      ) {
+        originalPos += 3; // Skip the soft line break
+      }
+      // Check for =\n soft break (2 chars)
+      else if (
+        originalPos + 1 < text.length &&
+        text[originalPos] === '=' &&
+        text[originalPos + 1] === '\n'
+      ) {
+        originalPos += 2; // Skip the soft line break
+      }
+      else {
+        positionMap.set(cleanedPos, originalPos);
+        cleaned += text[originalPos];
+        cleanedPos++;
+        originalPos++;
+      }
+    }
+
+    return { cleaned, positionMap };
+  }
+
+  /**
+   * Generates search variants for a text string to handle encoding differences
+   * between displayed text and canonicalized body.
+   *
+   * @param text - The text to generate variants for
+   * @returns Array of search variants (original, HTML-encoded, etc.)
+   */
+  function generateSearchVariants(text: string): string[] {
+    const variants: string[] = [text];
+
+    // HTML entity encoding variant
+    const htmlEncoded = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    if (htmlEncoded !== text) {
+      variants.push(htmlEncoded);
+    }
+
+    return variants;
+  }
+
+  /**
+   * Searches for text in canonicalized body content, handling soft line breaks.
+   * Returns all positions where the text is found.
+   *
+   * @param searchText - The text to search for
+   * @param canonicalizedBody - The DKIM-canonicalized body
+   * @returns Array of { start, length } for each match
+   */
+  function findAllOccurrences(
+    searchText: string,
+    canonicalizedBody: string
+  ): Array<{ start: number; length: number }> {
+    const results: Array<{ start: number; length: number }> = [];
+
+    // Check if body uses quoted-printable (has soft line breaks)
+    const hasQuotedPrintable = canonicalizedBody.includes('=\r\n') || canonicalizedBody.includes('=\n');
+
+    // Generate all search variants
+    const variants = generateSearchVariants(searchText);
+
+    for (const variant of variants) {
+      if (hasQuotedPrintable) {
+        // Clean-then-search: remove soft breaks and use position mapping
+        const { cleaned: cleanedBody, positionMap } = removeAllSoftLineBreaks(canonicalizedBody);
+        const cleanedVariant = removeAllSoftLineBreaks(variant).cleaned;
+
+        let searchPos = 0;
+        while (searchPos < cleanedBody.length) {
+          const foundInCleaned = cleanedBody.indexOf(cleanedVariant, searchPos);
+          if (foundInCleaned === -1) break;
+
+          // Map back to original positions
+          const originalStart = positionMap.get(foundInCleaned);
+          if (originalStart !== undefined) {
+            // Calculate actual length in original (may include soft breaks)
+            const endInCleaned = foundInCleaned + cleanedVariant.length - 1;
+            const originalEnd = positionMap.get(endInCleaned);
+            const matchLength = originalEnd !== undefined
+              ? originalEnd - originalStart + 1
+              : variant.length;
+
+            results.push({ start: originalStart, length: matchLength });
+          }
+
+          searchPos = foundInCleaned + cleanedVariant.length;
+        }
+      } else {
+        // Direct search
+        let searchPos = 0;
+        while (searchPos < canonicalizedBody.length) {
+          const found = canonicalizedBody.indexOf(variant, searchPos);
+          if (found === -1) break;
+
+          results.push({ start: found, length: variant.length });
+          searchPos = found + variant.length;
+        }
+      }
+    }
+
+    return results;
+  }
+
   // Map mask bits to original EML file positions
   const aggregatedMask = useMemo(() => {
     if (!email.originalEml) {
       // Fallback: reconstruct EML if original not available
-      const zeroBits = (length: number) => new Array(length).fill(0);
+      // Circuit-aligned: 1 = reveal (labels should be revealed, not masked)
+      const revealBits = (length: number) => new Array(length).fill(1);
       const segments = [
-        { text: "From: ", bits: zeroBits("From: ".length) },
+        { text: "From: ", bits: revealBits("From: ".length) },
         { text: email.from, bits: fromMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "To: ", bits: zeroBits("To: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "To: ", bits: revealBits("To: ".length) },
         { text: email.to, bits: toMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "Date: ", bits: zeroBits("Date: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "Date: ", bits: revealBits("Date: ".length) },
         { text: email.time, bits: timeMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "Subject: ", bits: zeroBits("Subject: ".length) },
+        { text: "\n", bits: [1] },
+        { text: "Subject: ", bits: revealBits("Subject: ".length) },
         { text: email.subject, bits: subjectMaskBits },
-        { text: "\n", bits: [0] },
-        { text: "\n", bits: [0] },
+        { text: "\n", bits: [1] },
+        { text: "\n", bits: [1] },
         { text: bodyText, bits: bodyMaskBits },
       ];
 
@@ -1240,7 +1436,7 @@ export default function EmailCard({
         if (segment.bits.length === segment.text.length) {
           return segment.bits;
         }
-        const fallback = zeroBits(segment.text.length);
+        const fallback = revealBits(segment.text.length);
         for (
           let i = 0;
           i < Math.min(segment.bits.length, fallback.length);
@@ -1260,7 +1456,8 @@ export default function EmailCard({
 
     // Use original EML file - map field selections to original positions
     const originalEml = email.originalEml;
-    const bits = new Array(originalEml.length).fill(0);
+    // Circuit-aligned: 1 = reveal (start with everything revealed)
+    const bits = new Array(originalEml.length).fill(1);
 
     // Helper to find and map field value in original EML
     // IMPORTANT: This function maps mask bits to the raw EML positions
@@ -1306,25 +1503,25 @@ export default function EmailCard({
           // Fallback: search for the header line
           const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
           const headerLineMatch = headerLinePattern.exec(headersSection);
-          
+
           if (headerLineMatch) {
             const lineStart = headerLineMatch.index;
             const line = headerLineMatch[0];
             const colonIndex = line.indexOf(':');
-            
+
             if (colonIndex >= 0) {
               // Get everything after the colon
               const valueSection = line.slice(colonIndex + 1);
-              
+
               // Look for angle brackets first - emails are often in <email@example.com> format
               const angleBracketStart = valueSection.indexOf('<');
               const angleBracketEnd = angleBracketStart >= 0 ? valueSection.indexOf('>', angleBracketStart) : -1;
-              
+
               if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
                 // There are angle brackets, check if email is inside
                 const contentInsideBrackets = valueSection.slice(angleBracketStart + 1, angleBracketEnd);
                 const emailIndexInBrackets = contentInsideBrackets.indexOf(fieldValue);
-                
+
                 if (emailIndexInBrackets >= 0) {
                   // Email is inside brackets - position is after the <
                   actualValueStart = lineStart + colonIndex + 1 + angleBracketStart + 1 + emailIndexInBrackets;
@@ -1363,7 +1560,7 @@ export default function EmailCard({
         // For other fields (time, subject), use the header line pattern approach
         // Escape special regex characters in field value
         const escapedValue = fieldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        
+
         // Search for header line: "HeaderName: value" (allowing for whitespace)
         const headerPattern = new RegExp(
           `^${headerFieldName}\\s*:\\s*${escapedValue}`,
@@ -1389,7 +1586,7 @@ export default function EmailCard({
           // Fallback: search for header line and then find value within it
           const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
           const headerLineMatch = headerLinePattern.exec(headersSection);
-          
+
           if (headerLineMatch) {
             const lineStart = headerLineMatch.index;
             const line = headerLineMatch[0];
@@ -1436,101 +1633,267 @@ export default function EmailCard({
       }
     };
 
-    // Map each field to original EML positions
-    mapFieldToOriginal(email.from, fromMaskBits, 'from');
-    mapFieldToOriginal(email.to, toMaskBits, 'to');
-    mapFieldToOriginal(email.time, timeMaskBits, 'time');
-    mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
-    
-    // For body, try multiple approaches to find it in the EML
-    // 1. Try plain text bodyText first
-    let bodyMapped = false;
-    if (bodyText && bodyMaskBits.length > 0) {
-      const bodyTextMatches = [...originalEml.matchAll(new RegExp(bodyText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))];
-      if (bodyTextMatches.length > 0) {
-        mapFieldToOriginal(bodyText, bodyMaskBits, 'body');
-        bodyMapped = true;
-      }
-    }
-    
-    // 2. If not found, try HTML body content
-    if (!bodyMapped && email.bodyHtml && bodyMaskBits.length > 0) {
-      // Try to find HTML body in EML - look for a substring of the HTML
-      const htmlSubstring = email.bodyHtml.substring(0, Math.min(500, email.bodyHtml.length));
-      const htmlEscaped = htmlSubstring.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const htmlMatches = [...originalEml.matchAll(new RegExp(htmlEscaped, "g"))];
-      
-      if (htmlMatches.length > 0) {
-        const matchStart = htmlMatches[0].index!;
-        
-        // Extract plain text from HTML to map positions
-        // We need to map bodyMaskBits (which is for plain text) to HTML positions
-        if (typeof window !== 'undefined' && window.DOMParser) {
-          try {
-            const parser = new window.DOMParser();
-            const tempDoc = parser.parseFromString(`<div>${email.bodyHtml}</div>`, 'text/html');
-            const tempDiv = tempDoc.querySelector('div');
-            const htmlPlainText = tempDiv?.textContent || '';
-            
-            // Find where bodyText appears in htmlPlainText
-            const bodyTextInHtmlPos = htmlPlainText.indexOf(bodyText);
-            if (bodyTextInHtmlPos >= 0) {
-              // Calculate the offset in the HTML string where the text content starts
-              // This is approximate - we map based on character positions
-              const htmlTextStart = matchStart + bodyTextInHtmlPos;
-              
-              // Map bodyMaskBits to the EML positions
-              // Since we found the HTML, we need to map the plain text positions to HTML positions
-              // This is a simplified approach - map directly if lengths match
-              let bitsMapped = 0;
-              for (let i = 0; i < Math.min(bodyMaskBits.length, bodyText.length); i++) {
-                const emlPos = htmlTextStart + i;
-                if (emlPos < bits.length) {
-                  bits[emlPos] = bodyMaskBits[i] || 0;
-                  if (bodyMaskBits[i] === 1) bitsMapped++;
-                }
-              }
-              bodyMapped = true;
+    // Header masking: create a separate mask array for canonicalized headers
+    // The circuit receives canonicalized headers, so the mask must align with those positions
+    const canonicalizedHeaders = email.dkimCanonicalizedHeaders;
+    let canonicalHeaderBits: number[] | null = null;
+
+    if (canonicalizedHeaders) {
+      // Create header mask array sized to canonicalized headers (not original EML)
+      canonicalHeaderBits = new Array(canonicalizedHeaders.length).fill(1);
+
+      // Helper to find the range of a specific header line in canonicalized headers
+      // Returns { start, end } where start is after "fieldname:" and end is before next header
+      // IMPORTANT: Must match header name at line start to avoid matching substrings
+      // (e.g., "to:" should not match inside "reply-to:")
+      const findHeaderLineRange = (headerName: string): { start: number; end: number } | null => {
+        // Canonicalized headers use lowercase header names
+        const headerPrefix = headerName.toLowerCase() + ':';
+
+        // Search for header at start of string or after newline to avoid substring matches
+        let headerStart = -1;
+
+        if (canonicalizedHeaders.startsWith(headerPrefix)) {
+          headerStart = 0;
+        } else {
+          // Search for header after newline
+          const patterns = ['\r\n' + headerPrefix, '\n' + headerPrefix];
+          for (const pattern of patterns) {
+            const pos = canonicalizedHeaders.indexOf(pattern);
+            if (pos >= 0) {
+              headerStart = pos + pattern.length - headerPrefix.length;
+              break;
             }
-          } catch (e) {
-            // Error parsing HTML for body mapping
+          }
+        }
+
+        if (headerStart < 0) {
+          console.log(`[HEADER RANGE] "${headerName}": prefix "${headerPrefix}" not found in canonicalized headers`);
+          console.log(`[HEADER RANGE] Canonicalized headers (first 500 chars): "${canonicalizedHeaders.substring(0, 500)}"`);
+          return null;
+        }
+
+        // Start of value is after the colon
+        const valueStart = headerStart + headerPrefix.length;
+
+        // End is at the next line break (\r\n or \n) or end of headers
+        // NOTE: Line breaks are the correct approach per RFC 5322 (email format) and RFC 6376 (DKIM).
+        // Email headers are line-delimited by spec. We can't split upfront because we need
+        // exact byte positions for mask bit mapping.
+        let valueEnd = canonicalizedHeaders.indexOf('\r\n', valueStart);
+        if (valueEnd < 0) {
+          // Try just \n (some systems use LF only)
+          valueEnd = canonicalizedHeaders.indexOf('\n', valueStart);
+        }
+        if (valueEnd < 0) {
+          valueEnd = canonicalizedHeaders.length;
+        }
+
+        console.log(`[HEADER RANGE] "${headerName}": found at positions ${valueStart}-${valueEnd}`);
+        return { start: valueStart, end: valueEnd };
+      };
+
+      // Text-search approach: find the exact field value in the header line, then apply mask bits
+      const mapHeaderFieldMask = (fieldValue: string, fieldBits: number[], fieldName: string) => {
+        if (!fieldValue || fieldBits.length === 0 || !canonicalHeaderBits) return;
+        if (!fieldBits.some(bit => bit === 0)) return; // No masking needed
+
+        // Map field name to header name
+        let headerName = fieldName;
+        if (fieldName === 'time') headerName = 'date';
+
+        // Find the range of this specific header line
+        const headerRange = findHeaderLineRange(headerName);
+        if (!headerRange) {
+          console.warn(`[HEADER MASK] ${fieldName}: header line "${headerName}:" not found in canonicalized headers`);
+          return;
+        }
+
+        // Get the header line content for searching
+        const headerLineContent = canonicalizedHeaders.slice(headerRange.start, headerRange.end);
+        console.log(`[HEADER MASK] ${fieldName}: header line content: "${headerLineContent}"`);
+        console.log(`[HEADER MASK] ${fieldName}: field value to find: "${fieldValue}"`);
+
+        // Robust search: try multiple strategies to find the field value
+        // These are FALLBACK strategies - each is only tried if the previous one failed.
+        // This handles variations in how email addresses appear in headers:
+        // - Exact match works for simple cases
+        // - Case-insensitive handles DKIM canonicalization lowercasing
+        // - Angle brackets handles "Display Name" <email@example.com> format
+        let fieldValuePos = -1;
+        let actualValueInHeader = fieldValue;
+
+        // Strategy 1: Exact match (always tried first)
+        fieldValuePos = headerLineContent.indexOf(fieldValue);
+
+        // Strategy 2: Case-insensitive match (for email addresses)
+        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
+          const lowerHeaderContent = headerLineContent.toLowerCase();
+          const lowerFieldValue = fieldValue.toLowerCase();
+          const lowerPos = lowerHeaderContent.indexOf(lowerFieldValue);
+          if (lowerPos >= 0) {
+            // Found case-insensitive match - use the original position
+            fieldValuePos = lowerPos;
+            // Get the actual value from the header (with original case)
+            actualValueInHeader = headerLineContent.slice(lowerPos, lowerPos + fieldValue.length);
+            console.log(`[HEADER MASK] ${fieldName}: found via case-insensitive search at offset ${lowerPos}`);
+          }
+        }
+
+        // Strategy 3: Search for email within angle brackets
+        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
+          // Look for <email@domain.com> pattern
+          const angleBracketStart = headerLineContent.indexOf('<');
+          const angleBracketEnd = angleBracketStart >= 0 ? headerLineContent.indexOf('>', angleBracketStart) : -1;
+          if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
+            const emailInBrackets = headerLineContent.slice(angleBracketStart + 1, angleBracketEnd);
+            // Case-insensitive comparison for email
+            if (emailInBrackets.toLowerCase() === fieldValue.toLowerCase()) {
+              fieldValuePos = angleBracketStart + 1;
+              actualValueInHeader = emailInBrackets;
+              console.log(`[HEADER MASK] ${fieldName}: found inside angle brackets at offset ${fieldValuePos}`);
+            }
+          }
+        }
+
+        if (fieldValuePos < 0) {
+          console.warn(`[HEADER MASK] ${fieldName}: field value "${fieldValue}" not found in header line using any strategy`);
+          return;
+        }
+
+        console.log(`[HEADER MASK] ${fieldName}: found field value at line offset ${fieldValuePos}, actual value: "${actualValueInHeader}"`);
+
+        // Apply mask bits directly at the field value position
+        // fieldBits[i] corresponds to fieldValue[i], which is at headerLineContent[fieldValuePos + i]
+        const absoluteFieldStart = headerRange.start + fieldValuePos;
+
+        for (let i = 0; i < Math.min(fieldBits.length, actualValueInHeader.length); i++) {
+          if (fieldBits[i] === 0) {
+            const absolutePos = absoluteFieldStart + i;
+            if (absolutePos < canonicalHeaderBits.length) {
+              canonicalHeaderBits[absolutePos] = 0;
+            }
+          }
+        }
+
+        const maskedCount = fieldBits.filter(b => b === 0).length;
+        console.log(`[HEADER MASK] ${fieldName}: applied ${maskedCount} masked bits starting at position ${absoluteFieldStart}`);
+      };
+
+      // Map each header field using text-search in canonicalized headers
+      mapHeaderFieldMask(email.from, fromMaskBits, 'from');
+      mapHeaderFieldMask(email.to, toMaskBits, 'to');
+      mapHeaderFieldMask(email.time, timeMaskBits, 'time');
+      mapHeaderFieldMask(email.subject, subjectMaskBits, 'subject');
+    } else {
+      // Fallback to position-based approach if no canonicalized headers available
+      console.warn('[HEADER MASK] No canonicalized headers available, falling back to position-based mapping');
+      mapFieldToOriginal(email.from, fromMaskBits, 'from');
+      mapFieldToOriginal(email.to, toMaskBits, 'to');
+      mapFieldToOriginal(email.time, timeMaskBits, 'time');
+      mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
+    }
+
+    // Body masking: create a separate mask array for canonicalized body
+    // The circuit receives canonicalized body, so the mask must align with those positions
+    const canonicalizedBody = email.dkimCanonicalizedBody;
+    let canonicalBodyBits: number[] | null = null;
+
+    if (canonicalizedBody) {
+      // Create body mask array sized to canonicalized body (not raw EML body)
+      canonicalBodyBits = new Array(canonicalizedBody.length).fill(1);
+    }
+
+    // Body masking: search directly in canonicalized body (no offset adjustments needed)
+    // This mirrors the header masking approach that works reliably
+    if (canonicalizedBody && canonicalBodyBits && bodyMaskBits.some(bit => bit === 0)) {
+      // Extract masked text segments from displayed bodyText
+      const maskedSegments: Array<{ text: string; displayStart: number; displayEnd: number }> = [];
+      let i = 0;
+      while (i < bodyMaskBits.length && i < bodyText.length) {
+        if (bodyMaskBits[i] === 0) {
+          const segmentStart = i;
+          while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
+            i++;
+          }
+          const segmentEnd = i;
+          const maskedText = bodyText.slice(segmentStart, segmentEnd);
+          if (maskedText.length > 0) {
+            maskedSegments.push({
+              text: maskedText,
+              displayStart: segmentStart,
+              displayEnd: segmentEnd,
+            });
+          }
+        } else {
+          i++;
+        }
+      }
+
+      // For each masked segment, find ALL occurrences in canonicalized body
+      for (const segment of maskedSegments) {
+        const occurrences = findAllOccurrences(segment.text, canonicalizedBody);
+
+        // Mark ALL occurrences as masked in canonicalBodyBits
+        for (const { start, length } of occurrences) {
+          for (let j = 0; j < length; j++) {
+            if (start + j < canonicalBodyBits.length) {
+              canonicalBodyBits[start + j] = 0; // Circuit-aligned: 0 = mask/hide
+            }
           }
         }
       }
-    }
-    
-    // 3. If still not found, try to find body content by looking for common email body markers
-    if (!bodyMapped && bodyMaskBits.length > 0) {
-      // Look for common patterns that indicate the start of email body
-      // Try to find "\r\n\r\n" or "\n\n" which often separates headers from body
+    } else if (!canonicalizedBody && bodyMaskBits.some(bit => bit === 0)) {
+      // Fallback: use old approach with raw EML if no canonicalized body
+      console.warn('[BODY MASK] No canonicalized body available, falling back to raw EML search');
+
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
-      
+
       if (bodyStart > 0 && bodyStart < originalEml.length) {
-        // Try to map bodyMaskBits starting from bodyStart position
-        // This is a fallback - map the first part of bodyMaskBits
-        const mappingLength = Math.min(bodyMaskBits.length, originalEml.length - bodyStart);
-        let bitsMapped = 0;
-        for (let i = 0; i < mappingLength; i++) {
-          if (bodyStart + i < bits.length) {
-            bits[bodyStart + i] = bodyMaskBits[i] || 0;
-            if (bodyMaskBits[i] === 1) bitsMapped++;
+        const rawBody = originalEml.slice(bodyStart);
+
+        // Extract masked text segments from bodyText and search for them in rawBody
+        let i = 0;
+        while (i < bodyMaskBits.length && i < bodyText.length) {
+          if (bodyMaskBits[i] === 0) {
+            const segmentStart = i;
+            while (i < bodyMaskBits.length && bodyMaskBits[i] === 0) {
+              i++;
+            }
+            const maskedText = bodyText.slice(segmentStart, i);
+
+            if (maskedText.length > 0) {
+              const foundPos = rawBody.indexOf(maskedText, 0);
+              if (foundPos !== -1) {
+                const adjustedFoundPos = foundPos > 0 ? foundPos - 1 : foundPos;
+                const absolutePos = bodyStart + adjustedFoundPos;
+                for (let j = 0; j < maskedText.length; j++) {
+                  if (absolutePos + j < bits.length) {
+                    bits[absolutePos + j] = 0;
+                  }
+                }
+              }
+            }
+          } else {
+            i++;
           }
-        }
-        if (bitsMapped > 0) {
-          bodyMapped = true;
         }
       }
     }
-    
+
     // Store the body mapping position for later extraction
     return {
       eml: originalEml,
       bits,
       mask: bits.join(""),
+      canonicalHeaderBits, // Separate header mask for canonicalized headers (null if not available)
+      canonicalBodyBits, // Separate body mask for canonicalized body (null if not available)
     };
   }, [
     email.originalEml,
+    email.dkimCanonicalizedHeaders,
+    email.dkimCanonicalizedBody,
     email.from,
     email.to,
     email.time,
@@ -1565,17 +1928,31 @@ export default function EmailCard({
       }
     }
 
-    // Extract header mask: everything before the body
-    // If bodyStart is invalid, use all bits as header (fallback)
-    const headerMask = bodyStart > 0 && bodyStart < allBits.length
-      ? allBits.slice(0, bodyStart)
-      : allBits;
+    // Header mask: use canonicalHeaderBits if available (for DKIM-canonicalized headers)
+    // Otherwise fall back to extracting from the combined bits array
+    let headerMask: number[];
+    if (aggregatedMask.canonicalHeaderBits) {
+      // Use the separate header mask that's aligned with canonicalized headers
+      headerMask = aggregatedMask.canonicalHeaderBits;
+    } else {
+      // Fallback: extract from combined bits (legacy behavior)
+      headerMask = bodyStart > 0 && bodyStart < allBits.length
+        ? allBits.slice(0, bodyStart)
+        : allBits;
+    }
 
-    // Extract body mask: everything from body start to end
-    // If bodyStart is invalid, use empty array (fallback)
-    const bodyMask = bodyStart > 0 && bodyStart < allBits.length
-      ? allBits.slice(bodyStart)
-      : [];
+    // Body mask: use canonicalBodyBits if available (for DKIM-canonicalized body)
+    // Otherwise fall back to extracting from the combined bits array
+    let bodyMask: number[];
+    if (aggregatedMask.canonicalBodyBits) {
+      // Use the separate body mask that's aligned with canonicalized body
+      bodyMask = aggregatedMask.canonicalBodyBits;
+    } else {
+      // Fallback: extract from combined bits (legacy behavior)
+      bodyMask = bodyStart > 0 && bodyStart < allBits.length
+        ? allBits.slice(bodyStart)
+        : [];
+    }
 
     onMaskChange(headerMask, bodyMask);
   }, [

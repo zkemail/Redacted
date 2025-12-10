@@ -6,9 +6,9 @@ import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
-import { type ParsedEmail } from "./utils/emlParser";
+import { type ParsedEmail, type DKIMResult } from "./utils/emlParser";
 import { handleGenerateProof } from "./lib";
-import { uploadEmlToGCS, generateUuid } from "./utils/gcsUpload";
+import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
 
@@ -20,6 +20,9 @@ interface EmailState {
   bodyText: string;
   bodyHtml?: string;
   originalEml?: string; // Store original EML file content
+  dkimCanonicalizedHeaders?: string; // DKIM-canonicalized headers for accurate header masking
+  dkimCanonicalizedBody?: string; // DKIM-canonicalized body for accurate body masking
+  dkimResult?: DKIMResult; // Full DKIM result for reuse during proof generation (Phase 2 optimization)
 }
 
 export default function MainApp() {
@@ -68,6 +71,9 @@ export default function MainApp() {
       bodyText: parsedEmail.bodyText || parsedEmail.body || "",
       bodyHtml: parsedEmail.bodyHtml,
       originalEml, // Store original EML content
+      dkimCanonicalizedHeaders: parsedEmail.dkimCanonicalizedHeaders, // DKIM-canonicalized headers
+      dkimCanonicalizedBody: parsedEmail.dkimCanonicalizedBody, // DKIM-canonicalized body
+      dkimResult: parsedEmail.dkimResult, // Full DKIM result for proof generation (Phase 2 optimization)
     });
     // Reset masked fields when new email is loaded
     setMaskedFields(new Set());
@@ -105,30 +111,29 @@ export default function MainApp() {
 
   const handleVerify = async () => {
     if (!email.originalEml) return;
-    
+
     setIsGeneratingProof(true);
     setVerificationUrl(null);
     try {
-      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask) as ProofData | undefined;
+      // Pass existing DKIM result to avoid double verification (Phase 2 optimization)
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask, email.dkimResult) as ProofData | undefined;
       
       // Proof generated successfully
       if (!proof) {
         throw new Error("Proof generation failed");
       }
       
-      // Upload EML file and proof to Google Cloud Storage after proof is generated
+      // Upload proof to Google Cloud Storage after proof is generated
+      // Note: EML upload removed - verification now uses proof outputs directly
       if (proof) {
         try {
-          // Step 1: Generate a UUID for this email/proof pair
+          // Step 1: Generate a UUID for this proof
           const uuid = await generateUuid();
-          
-          // Step 2: Upload EML file to GCS using the UUID
-          await uploadEmlToGCS(email.originalEml, uuid);
-          
-          // Step 3: Generate shareable verification URL (stores proof on server, returns short URL)
+
+          // Step 2: Generate shareable verification URL (stores proof on server, returns short URL)
           const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
           setVerificationUrl(shareableUrl);
-          
+
           // Copy to clipboard
           try {
             await navigator.clipboard.writeText(shareableUrl);
@@ -136,7 +141,7 @@ export default function MainApp() {
             console.warn("Failed to copy to clipboard:", clipboardError);
           }
         } catch (uploadError) {
-          console.error("Error uploading files to GCS:", uploadError);
+          console.error("Error uploading proof to GCS:", uploadError);
           // Don't fail the entire operation if upload fails
         }
       }
