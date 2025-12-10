@@ -134,7 +134,19 @@ export const handleGenerateProof = async (
     const selectedCircuit = circuitConfig.circuit;
 
     const noir = new Noir(selectedCircuit);
-    const backend = new UltraHonkBackend(selectedCircuit.bytecode);
+
+    // Configure multi-threading for proof generation
+    // Requires cross-origin isolation (COOP/COEP headers) for SharedArrayBuffer
+    const threads = self.crossOriginIsolated
+      ? (navigator.hardwareConcurrency || 4)
+      : 1;
+    console.log(`[THREADS] Cross-origin isolated: ${self.crossOriginIsolated}, using ${threads} thread(s)`);
+
+    // const backend = new 
+    
+    const backend = new UltraHonkBackend(selectedCircuit.bytecode, {
+      threads
+    });
 
     const inputParams = {
       maxHeadersLength: circuitConfig.maxHeaderLength,
