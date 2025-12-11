@@ -58,6 +58,15 @@ export default function MainApp() {
     message: string;
   } | null>(null);
   const [hasMaskedContentUI, setHasMaskedContentUI] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
+  // Auto-dismiss toast after 5 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
@@ -136,38 +145,40 @@ export default function MainApp() {
     if (!email.originalEml) return;
 
     setIsGeneratingProof(true);
+    await new Promise(r => setTimeout(r, 0)); // Yield to event loop so React can re-render
     setVerificationUrl(null);
     setGeneratedProof(null);
     setVerificationStatus(null);
     try {
       // Pass existing DKIM result to avoid double verification (Phase 2 optimization)
-      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask, email.dkimResult) as ProofData | undefined;
-      
-      // Proof generated successfully
-      if (!proof) {
-        throw new Error("Proof generation failed");
-      }
-      
-      // Store the proof for verification
-      setGeneratedProof(proof);
-      
-      // Upload EML file and proof to Google Cloud Storage after proof is generated
-      if (proof) {
-        try {
-          // Step 1: Generate a UUID for this proof
-          const uuid = await generateUuid();
+      const proof = await handleGenerateProof(email.originalEml, headerMask, bodyMask, email.dkimResult) as ProofData;
 
-          // Step 2: Generate shareable verification URL (stores proof on server, returns short URL)
-          const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
-          setVerificationUrl(shareableUrl);
-          // Don't auto-open the modal - user will click "Share Link" button to open it
-        } catch (uploadError) {
-          console.error("Error uploading proof to GCS:", uploadError);
-          // Don't fail the entire operation if upload fails
-        }
+      // Proof generated successfully (handleGenerateProof throws on error)
+      setGeneratedProof(proof);
+
+      // Upload proof to Google Cloud Storage
+      try {
+        const uuid = await generateUuid();
+        const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
+        setVerificationUrl(shareableUrl);
+      } catch (uploadError) {
+        console.error("Error uploading proof to GCS:", uploadError);
+        // Don't fail the entire operation if upload fails
       }
     } catch (error) {
       console.error("Error generating proof:", error);
+      // Check for body size limit error
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes("longer than max") || errorMsg.includes("Remaining body")) {
+        setToast({
+          type: 'error',
+          message: 'Email body is too large. This app supports emails up to ~8KB body size.',
+        });
+      } else if (errorMsg.includes("Unsupported DKIM key size")) {
+        setToast({ type: 'error', message: errorMsg });
+      } else {
+        setToast({ type: 'error', message: 'Failed to generate proof. Please try again.' });
+      }
     } finally {
       setIsGeneratingProof(false);
     }
@@ -216,6 +227,18 @@ export default function MainApp() {
 
   return (
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100]">
+          <div className={`px-3 py-2 rounded-md shadow-md flex items-center gap-2 text-sm ${
+            toast.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
+          }`}>
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+          </div>
+        </div>
+      )}
+
       <Header
         onChangeEmail={() => setIsUploadModalOpen(true)}
         onResetChanges={handleResetChanges}
