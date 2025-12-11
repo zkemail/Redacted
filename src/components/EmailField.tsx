@@ -19,6 +19,8 @@ interface EmailFieldProps {
   restrictToNameOnly?: boolean; // For "From" field, only allow masking name part (before @)
   disableSelectionMasking?: boolean;
   useBlackMask?: boolean;
+  clearTrigger?: number;
+  onFieldInteraction?: () => void;
 }
 
 export default function EmailField({
@@ -31,6 +33,8 @@ export default function EmailField({
   restrictToNameOnly = false,
   disableSelectionMasking = false,
   useBlackMask = false,
+  clearTrigger,
+  onFieldInteraction,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -109,6 +113,14 @@ export default function EmailField({
     
     onMaskBitsChange(newBits);
   }, [isMasked, maskableRange.start, maskableRange.end, localMaskBits, onMaskBitsChange, restrictToNameOnly, value.length]);
+
+  // Close popup when clearTrigger changes (triggered by clicking other fields/body)
+  useEffect(() => {
+    if (!clearTrigger) return;
+    setShowMaskButton(false);
+    setCurrentSelection(null);
+    setHasActiveSelection(false);
+  }, [clearTrigger]);
 
   const escapeHtml = useCallback((text: string) => {
     return text
@@ -520,6 +532,7 @@ export default function EmailField({
         className="block md:flex-1 text-[#111314] text-base font-normal md:whitespace-nowrap relative select-text"
         onMouseUp={handleMouseUp}
         onMouseDown={() => {
+          onFieldInteraction?.();
           if (hasActiveSelection) {
             savedSelectionRangeRef.current = null;
             savedSelectionOffsetsRef.current = null;

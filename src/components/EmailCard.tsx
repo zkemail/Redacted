@@ -554,7 +554,8 @@ export default function EmailCard({
   }>({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] =
     useState<SelectionInfo | null>(null);
-  const [hasActiveSelection, setHasActiveSelection] = useState(false);
+  const [, setHasActiveSelection] = useState(false);
+  const [clearTrigger, setClearTrigger] = useState(0);
 
   const escapeHtml = useCallback((text: string) => {
     return text
@@ -949,6 +950,12 @@ export default function EmailCard({
     setCurrentSelection(null);
     setHasActiveSelection(false);
   }, []);
+
+  // Trigger to clear all popups (body + all header fields)
+  const triggerClearAllPopups = useCallback(() => {
+    setClearTrigger(prev => prev + 1);
+    clearSelectionState();
+  }, [clearSelectionState]);
 
   const handleMouseUpOnBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // If selection masking is disabled, don't show mask buttons
@@ -2009,6 +2016,8 @@ export default function EmailCard({
           restrictToNameOnly={true}
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
+          clearTrigger={clearTrigger}
+          onFieldInteraction={triggerClearAllPopups}
         />
 
         <DashedBorder />
@@ -2022,6 +2031,8 @@ export default function EmailCard({
           onMaskBitsChange={setToMaskBitsWithHistory}
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
+          clearTrigger={clearTrigger}
+          onFieldInteraction={triggerClearAllPopups}
         />
 
         <DashedBorder />
@@ -2035,6 +2046,8 @@ export default function EmailCard({
           onMaskBitsChange={setTimeMaskBitsWithHistory}
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
+          clearTrigger={clearTrigger}
+          onFieldInteraction={triggerClearAllPopups}
         />
 
         <DashedBorder />
@@ -2050,6 +2063,8 @@ export default function EmailCard({
           onMaskBitsChange={setSubjectMaskBitsWithHistory}
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
+          clearTrigger={clearTrigger}
+          onFieldInteraction={triggerClearAllPopups}
         />
 
         <DashedBorder />
@@ -2094,12 +2109,7 @@ export default function EmailCard({
             id="email-body-container"
             className="flex-1 w-full md:w-auto text-[#111314] text-base font-normal whitespace-pre-wrap relative select-text email-body-scoped"
             onMouseUp={handleMouseUpOnBody}
-            onMouseDown={() => {
-              // Clear selection when clicking elsewhere
-              if (hasActiveSelection) {
-                clearSelectionState();
-              }
-            }}
+            onMouseDown={triggerClearAllPopups}
             style={
               {
                 // Custom selection color
