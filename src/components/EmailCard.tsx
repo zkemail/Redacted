@@ -531,7 +531,6 @@ export default function EmailCard({
         savedSelectionOffsetsRef.current = null;
         setShowMaskButton(false);
         setCurrentSelection(null);
-        setHasActiveSelection(false);
         // Reset history
         setHistory([resetState]);
         setHistoryIndex(0);
@@ -554,7 +553,6 @@ export default function EmailCard({
   }>({ x: 0, y: 0 });
   const [currentSelection, setCurrentSelection] =
     useState<SelectionInfo | null>(null);
-  const [, setHasActiveSelection] = useState(false);
   const [clearTrigger, setClearTrigger] = useState(0);
 
   const escapeHtml = useCallback((text: string) => {
@@ -948,7 +946,6 @@ export default function EmailCard({
     savedSelectionOffsetsRef.current = null;
     setShowMaskButton(false);
     setCurrentSelection(null);
-    setHasActiveSelection(false);
   }, []);
 
   // Trigger to clear all popups (body + all header fields)
@@ -983,9 +980,6 @@ export default function EmailCard({
       clearSelectionState();
       return;
     }
-
-    // Set active selection state immediately for visual feedback
-    setHasActiveSelection(true);
 
     // Calculate selection offsets by extracting text content from DOM
     // This works correctly even when HTML has masking spans inserted
