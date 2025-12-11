@@ -13,11 +13,9 @@ import type { DKIMResult } from "./utils/emlParser";
 // 1024-bit key circuits
 import circuitEmailMask1024SmallJson from "./circuit/target/email_mask_1024_small.json";
 import circuitEmailMask1024MidJson from "./circuit/target/email_mask_1024_mid.json";
-import circuitEmailMask1024LargeJson from "./circuit/target/email_mask_1024_large.json";
 // 2048-bit key circuits
 import circuitEmailMask2048SmallJson from "./circuit/target/email_mask_2048_small.json";
 import circuitEmailMask2048MidJson from "./circuit/target/email_mask_2048_mid.json";
-import circuitEmailMask2048LargeJson from "./circuit/target/email_mask_2048_large.json";
 import circuitConfigs from "./circuit-configs.json";
 
 // Map circuit names to their compiled JSON
@@ -25,11 +23,9 @@ const circuitJsonMap: Record<string, CompiledCircuit> = {
   // 1024-bit key circuits
   email_mask_1024_small: circuitEmailMask1024SmallJson as CompiledCircuit,
   email_mask_1024_mid: circuitEmailMask1024MidJson as CompiledCircuit,
-  email_mask_1024_large: circuitEmailMask1024LargeJson as CompiledCircuit,
   // 2048-bit key circuits
   email_mask_2048_small: circuitEmailMask2048SmallJson as CompiledCircuit,
   email_mask_2048_mid: circuitEmailMask2048MidJson as CompiledCircuit,
-  email_mask_2048_large: circuitEmailMask2048LargeJson as CompiledCircuit,
 };
 
 // Build CIRCUIT_CONFIGS from the shared configuration
