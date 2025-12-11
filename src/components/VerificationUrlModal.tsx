@@ -77,12 +77,6 @@ export default function VerificationUrlModal({
           >
             Open Verification Page
           </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-[#D4D4D4] text-[#111314] rounded-lg hover:bg-[#F5F3EF]"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>
