@@ -174,7 +174,7 @@ export const handleGenerateProof = async (
     return proof;
   } catch (e) {
     console.error(e);
-    return null;
+    throw e; // Re-throw to let caller handle specific error messages
   }
 };
 

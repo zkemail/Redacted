@@ -147,7 +147,17 @@ export default function UploadModal({
 
         <div className="mt-4 flex items-start justify-center gap-2 text-[12px] font-medium text-[#a8a8a8]">
           <span className="text-[#A8A8A8]">!</span>
-          <p>Having trouble getting EML file? Take a look at our guide!</p>
+          <p>
+            Having trouble getting EML file?{" "}
+            <a
+              href="https://docs.zk.email/zk-email-sdk/get-eml-file"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              Take a look at our guide!
+            </a>
+          </p>
         </div>
       </div>
     </div>
