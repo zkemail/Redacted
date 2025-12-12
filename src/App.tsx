@@ -250,7 +250,7 @@ export default function MainApp() {
         onShareLink={() => setShowVerificationModal(true)}
       />
 
-      <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
+      <main className="pt-20 px-6 md:px-0">
         <EmailCard
           key={`${email.from}-${email.to}-${email.time}-${email.subject}-${email.bodyText}`}
           email={{
