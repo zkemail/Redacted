@@ -67,17 +67,6 @@ export default function VerificationUrlModal({
           </div>
         </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              window.open(verificationUrl, "_blank", "noopener,noreferrer");
-            }}
-            className="flex-1 px-4 py-2 bg-[#111314] text-white rounded-lg hover:opacity-90"
-          >
-            Open Verification Page
-          </button>
-        </div>
       </div>
     </div>
   );
