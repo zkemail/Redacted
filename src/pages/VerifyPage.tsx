@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { handleVerifyProof, extractMaskedDataFromProof } from "../lib";
 import { fetchProofData } from "../utils/urlEncoder";
 import { parseMaskedHeader } from "../utils/headerParser";
 import MaskedText from "../components/MaskedText";
 import ActionBar from "../components/ActionBar";
+import VerificationUrlModal from "../components/VerificationUrlModal";
 import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
+import ShareIcon from "../assets/ShareIcon.svg";
+import HelpIcon from "../assets/HelpIcon.svg";
+import CloseIcon from "../assets/CloseIcon.svg";
+import HamburgerIcon from "../assets/HamburgerIcon.svg";
 import type { ProofData } from "@aztec/bb.js";
 
 export default function VerifyPage() {
@@ -33,6 +38,7 @@ export default function VerifyPage() {
     date: string;
   } | null>(null);
   const [maskedBody, setMaskedBody] = useState<string>('');
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   useEffect(() => {
     const loadVerificationData = async () => {
@@ -198,6 +204,10 @@ export default function VerifyPage() {
     }
   };
 
+  const handleShare = () => {
+    setShowVerificationModal(true);
+  };
+
   // Loading state
   if (isLoading) {
     return (
@@ -214,7 +224,7 @@ export default function VerifyPage() {
   if (error) {
     return (
       <div className="min-h-screen w-full bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-        <Header navigate={navigate} />
+        <Header navigate={navigate} onShare={handleShare} />
         <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm p-8 text-center">
             <div className="text-red-600 text-6xl mb-4">Warning</div>
@@ -236,7 +246,7 @@ export default function VerifyPage() {
   if (!maskedHeader) {
     return (
       <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-        <Header navigate={navigate} />
+        <Header navigate={navigate} onShare={handleShare} />
         <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm p-8 text-center">
             <p className="text-[#666]">No email data available</p>
@@ -248,7 +258,7 @@ export default function VerifyPage() {
 
   return (
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
-      <Header navigate={navigate} />
+      <Header navigate={navigate} onShare={handleShare} />
 
       <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
         <div className="w-full max-w-4xl mx-auto">
@@ -329,12 +339,55 @@ export default function VerifyPage() {
         showVerifyProof={true}
         proofVerified={verificationStatus?.verified === true}
       />
+
+      <VerificationUrlModal
+        isOpen={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        verificationUrl={window.location.href}
+      />
     </div>
   );
 }
 
 // Header component extracted for reuse
-function Header({ navigate }: { navigate: (path: string) => void }) {
+function Header({ navigate, onShare }: { navigate: (path: string) => void; onShare?: () => void }) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuRef.current &&
+        hamburgerRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        !hamburgerRef.current.contains(event.target as Node)
+      ) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    if (isMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMenuOpen]);
+
+  const handleMenuToggle = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
+
+  const handleShareClick = () => {
+    if (onShare) {
+      onShare();
+    }
+    setIsMenuOpen(false);
+  };
+
   return (
     <>
       {/* Mobile Header */}
@@ -349,6 +402,46 @@ function Header({ navigate }: { navigate: (path: string) => void }) {
             width={104}
             alt="Whistleblow Logo"
           />
+        </div>
+        <div className="flex flex-row gap-2 items-center relative">
+          <div className="bg-[#EAEAEA] flex items-center justify-center px-4 py-2">
+            <img src={HelpIcon} height={20} width={20} alt="Help Icon" />
+          </div>
+          <div
+            ref={hamburgerRef}
+            className="bg-[#EAEAEA] flex items-center justify-center px-4 py-2 cursor-pointer"
+            onClick={handleMenuToggle}
+          >
+            <img
+              src={isMenuOpen ? CloseIcon : HamburgerIcon}
+              height={20}
+              width={20}
+              alt={isMenuOpen ? "Close Menu" : "Open Menu"}
+            />
+          </div>
+
+          {/* Dropdown Menu */}
+          {isMenuOpen && (
+            <div
+              ref={menuRef}
+              className="absolute top-full right-0 mt-2 bg-[#F5F3EF] shadow-[0px_1px_4px_0px_rgba(12,12,13,0.1),0px_1px_4px_0px_rgba(12,12,13,0.05)] px-4 py-2 min-w-[160px] z-50 flex flex-col gap-4"
+            >
+              {onShare && (
+                <button
+                  onClick={handleShareClick}
+                  className="block w-full text-left text-white bg-[#111314] text-base font-medium leading-5 hover:opacity-90 transition-opacity cursor-pointer px-4 py-2 rounded"
+                >
+                  Share Link
+                </button>
+              )}
+              <button
+                className="block w-full text-left text-[#111314] text-base font-medium leading-5 hover:opacity-70 transition-opacity cursor-pointer"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Verify a Proof
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -369,6 +462,16 @@ function Header({ navigate }: { navigate: (path: string) => void }) {
           <div className="w-px h-6 bg-[#D4D4D4]" />
           <div className="text-[#111314]">Verify</div>
         </div>
+        {onShare && (
+          <div className="fixed top-6 right-6 z-50 flex flex-row gap-4 items-center">
+            <div className="bg-[#EAEAEA] flex flex-row gap-4 px-4 py-2 items-center text-[#111314]">
+              <button onClick={onShare} className="flex flex-row gap-2 items-center cursor-pointer">
+                <img src={ShareIcon} alt="Share Proof" width={20} height={20} />{" "}
+                Share Proof
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
