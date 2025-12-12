@@ -68,7 +68,7 @@ async function setupCORS() {
     
     const corsConfiguration = [
       {
-        origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000'],
+        origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000', "https://whistleblower-god8.onrender.com"],
         method: ['PUT', 'GET', 'HEAD'],
         responseHeader: ['Content-Type', 'Content-Length'],
         maxAgeSeconds: 3600,
