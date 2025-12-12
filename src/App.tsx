@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Header from "./components/AppHeader";
 import EmailCard from "./components/EmailCard";
 import ActionBar from "./components/ActionBar";
@@ -26,6 +27,7 @@ interface EmailState {
 }
 
 export default function MainApp() {
+  const navigate = useNavigate();
   const [maskedFields, setMaskedFields] = useState<Set<string>>(new Set());
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [resetTrigger, setResetTrigger] = useState(0);
@@ -161,6 +163,8 @@ export default function MainApp() {
         const uuid = await generateUuid();
         const shareableUrl = await createVerificationUrl(proof, uuid, headerMask, bodyMask);
         setVerificationUrl(shareableUrl);
+        // Redirect to verify page after successful upload
+        navigate(`/verify?id=${uuid}`);
       } catch (uploadError) {
         console.error("Error uploading proof to GCS:", uploadError);
         // Don't fail the entire operation if upload fails

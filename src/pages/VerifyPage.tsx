@@ -8,6 +8,7 @@ import { parseMaskedHeader } from "../utils/headerParser";
 import MaskedText from "../components/MaskedText";
 import ActionBar from "../components/ActionBar";
 import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
+import type { ProofData } from "@aztec/bb.js";
 
 export default function VerifyPage() {
   const navigate = useNavigate();
@@ -48,8 +49,74 @@ export default function VerifyPage() {
           return;
         }
 
-        // Fetch proof data from server using UUID
-        const { proof: decodedProof } = await fetchProofData(uuid);
+        // Step 1: Check localStorage first
+        let decodedProof: ProofData | null = null;
+        try {
+          const storedData = localStorage.getItem(`proof_${uuid}`);
+          if (storedData) {
+            const parsedData = JSON.parse(storedData);
+            if (parsedData.proof) {
+              // Reconstruct ProofData from stored format (same as fetchProofData does)
+              const toUint8Array = (val: unknown): Uint8Array => {
+                if (val instanceof Uint8Array) {
+                  return val;
+                }
+                if (Array.isArray(val)) {
+                  const numbers = val.map((v: unknown) => {
+                    if (typeof v === 'number') {
+                      if (isNaN(v) || v < 0 || v > 255) {
+                        throw new Error(`Invalid byte value: ${v}`);
+                      }
+                      return v;
+                    }
+                    if (typeof v === 'string') {
+                      const num = parseInt(v, 10);
+                      if (isNaN(num) || num < 0 || num > 255) {
+                        throw new Error(`Cannot parse byte value: ${v}`);
+                      }
+                      return num;
+                    }
+                    throw new Error(`Invalid value type: ${typeof v}`);
+                  });
+                  return new Uint8Array(numbers);
+                }
+                throw new Error(`Cannot convert value to Uint8Array: ${typeof val}`);
+              };
+
+              decodedProof = {
+                publicInputs: parsedData.proof.publicInputs.map((arr: unknown, idx: number) => {
+                  if (typeof arr === 'string') {
+                    return arr;
+                  }
+                  if (Array.isArray(arr)) {
+                    const hexString = arr.map((b: any) => {
+                      const num = typeof b === 'number' ? b : parseInt(b, 10);
+                      return num.toString(16).padStart(2, '0');
+                    }).join('');
+                    return hexString;
+                  }
+                  if (arr instanceof Uint8Array) {
+                    const hexString = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+                    return hexString;
+                  }
+                  throw new Error(`Unexpected publicInput type at index ${idx}: ${typeof arr}`);
+                }),
+                proof: toUint8Array(parsedData.proof.proof),
+              };
+              console.log(`[LOCALSTORAGE] Loaded proof from localStorage for UUID: ${uuid}`);
+            }
+          }
+        } catch (localStorageError) {
+          console.warn('[LOCALSTORAGE] Error reading from localStorage:', localStorageError);
+          // Continue to fetch from GCP as fallback
+        }
+
+        // Step 2: If not found in localStorage, fetch from GCP
+        if (!decodedProof) {
+          console.log(`[GCP] Proof not found in localStorage, fetching from GCP for UUID: ${uuid}`);
+          const fetchedData = await fetchProofData(uuid);
+          decodedProof = fetchedData.proof;
+        }
 
         if (!decodedProof) {
           setError("Failed to load proof data. The proof may have expired or been deleted.");
