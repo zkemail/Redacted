@@ -104,7 +104,21 @@ export async function createVerificationUrl(
     throw new Error(`Proof upload failed with status ${uploadResponse.status}`);
   }
 
-  // Step 3: Create short verification URL using the UUID
+  // Step 3: Store proof in localStorage keyed by UUID
+  try {
+    const proofDataForStorage = {
+      proof: proofForStorage,
+      headerMask: headerMask,
+      bodyMask: bodyMask,
+    };
+    localStorage.setItem(`proof_${uuid}`, JSON.stringify(proofDataForStorage));
+    console.log(`[LOCALSTORAGE] Stored proof for UUID: ${uuid}`);
+  } catch (storageError) {
+    console.warn('[LOCALSTORAGE] Failed to store proof in localStorage:', storageError);
+    // Don't fail the entire operation if localStorage fails
+  }
+
+  // Step 4: Create short verification URL using the UUID
   const baseUrl = window.location.origin;
   const verificationUrl = `${baseUrl}/verify?id=${uuid}`;
   
