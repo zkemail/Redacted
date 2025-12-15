@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: whistleblowing-app
+    name: redacted-app
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .

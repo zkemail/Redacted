@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
+import RedactedLogo from "../assets/RedactedLogo.svg";
 import HelpIcon from "../assets/HelpIcon.svg";
 import CloseIcon from "../assets/CloseIcon.svg";
 import HamburgerIcon from "../assets/HamburgerIcon.svg";
@@ -71,10 +71,10 @@ export default function Header({
           onClick={() => navigate("/")}
         >
           <img
-            src={WhistleblowerLogo}
+            src={RedactedLogo}
             height={20}
             width={104}
-            alt="Whistleblow Logo"
+            alt="Redacted Logo"
           />
         </div>
         <div className="flex flex-row gap-2 items-center relative">
@@ -144,10 +144,10 @@ export default function Header({
         <div className="bg-[#EAEAEA] fixed top-6 left-6 z-50 flex flex-row gap-4 px-4 py-3 items-center">
           <div className="cursor-pointer" onClick={() => navigate("/")}>
             <img
-              src={WhistleblowerLogo}
+              src={RedactedLogo}
               height={20}
               width={104}
-              alt="Whistleblow Logo"
+              alt="Redacted Logo"
             />
           </div>
           {/* <div className="w-px h-6 bg-[#D4D4D4]" />

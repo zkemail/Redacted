@@ -195,13 +195,13 @@ export default function Home() {
                 Just 4 simple steps, that's all!
               </div>
               <div className="font-light font-body text-base leading-5 tracking-0 text-dark">
-                Whistleblow any email you got in your inbox by following these 4
+                Redact any email you got in your inbox by following these 4
                 easy steps.
               </div>
             </div>
             <img
               src="/4-simple-steps.png"
-              alt="A diagram illustrating a four-step process for using the whistleblowing tool"
+              alt="A diagram illustrating a four-step process for using the redacted tool"
               className="h-full w-auto scale-x-[1.065] scale-y-[1.09] translate-y-0.5"
             />
           </div>
