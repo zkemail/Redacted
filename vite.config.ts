@@ -15,6 +15,13 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    headers: {
+      // Required for SharedArrayBuffer support (bb.js multi-threading)
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
+  },
   optimizeDeps: {
     exclude: ["@aztec/bb.js"],
   },

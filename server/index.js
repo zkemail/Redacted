@@ -59,6 +59,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Add cross-origin isolation headers for SharedArrayBuffer support (bb.js multi-threading)
+// This enables Web Workers to use shared memory for parallel proof generation
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  next();
+});
+
 // Initialize Google Cloud Storage
 const storageConfig = {
   projectId: process.env.GCS_PROJECT_ID,

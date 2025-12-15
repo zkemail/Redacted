@@ -5,37 +5,78 @@ import initNoirC from "@noir-lang/noirc_abi";
 import initACVM from "@noir-lang/acvm_js";
 import acvm from "@noir-lang/acvm_js/web/acvm_js_bg.wasm?url";
 import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
-// import circuit from "./circuit/target/circuit.json";
 import {
   generateEmailVerifierInputsFromDKIMResult
 } from "@zk-email/zkemail-nr";
 import type { DKIMResult } from "./utils/emlParser";
-// 1024-bit key circuits
-import circuitEmailMask1024SmallJson from "./circuit/target/email_mask_1024_small.json";
-import circuitEmailMask1024MidJson from "./circuit/target/email_mask_1024_mid.json";
-import circuitEmailMask1024LargeJson from "./circuit/target/email_mask_1024_large.json";
-// 2048-bit key circuits
-import circuitEmailMask2048SmallJson from "./circuit/target/email_mask_2048_small.json";
-import circuitEmailMask2048MidJson from "./circuit/target/email_mask_2048_mid.json";
-import circuitEmailMask2048LargeJson from "./circuit/target/email_mask_2048_large.json";
 import circuitConfigs from "./circuit-configs.json";
 
-// Map circuit names to their compiled JSON
-const circuitJsonMap: Record<string, CompiledCircuit> = {
-  // 1024-bit key circuits
-  email_mask_1024_small: circuitEmailMask1024SmallJson as CompiledCircuit,
-  email_mask_1024_mid: circuitEmailMask1024MidJson as CompiledCircuit,
-  email_mask_1024_large: circuitEmailMask1024LargeJson as CompiledCircuit,
-  // 2048-bit key circuits
-  email_mask_2048_small: circuitEmailMask2048SmallJson as CompiledCircuit,
-  email_mask_2048_mid: circuitEmailMask2048MidJson as CompiledCircuit,
-  email_mask_2048_large: circuitEmailMask2048LargeJson as CompiledCircuit,
-};
+// Circuit cache for lazy loading
+const circuitCache = new Map<string, CompiledCircuit>();
 
-// Build CIRCUIT_CONFIGS from the shared configuration
-const CIRCUIT_CONFIGS = circuitConfigs.circuits.map((config) => ({
+/**
+ * Dynamically load a circuit by name with caching
+ *
+ * @param circuitName - The circuit name (e.g., "email_mask_1024_small")
+ * @returns The compiled circuit
+ */
+async function loadCircuit(circuitName: string): Promise<CompiledCircuit> {
+  // Return cached circuit if available
+  const cached = circuitCache.get(circuitName);
+  if (cached) {
+    console.log(`📦 [CIRCUIT] Using cached circuit: ${circuitName}`);
+    return cached;
+  }
+
+  console.log(`📦 [CIRCUIT] Loading circuit: ${circuitName}`);
+
+  // Dynamic import based on circuit name
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let module: any;
+  switch (circuitName) {
+    case "email_mask_1024_small":
+      module = await import("./circuit/target/email_mask_1024_small.json");
+      break;
+    case "email_mask_1024_mid":
+      module = await import("./circuit/target/email_mask_1024_mid.json");
+      break;
+    case "email_mask_2048_small":
+      module = await import("./circuit/target/email_mask_2048_small.json");
+      break;
+    case "email_mask_2048_mid":
+      module = await import("./circuit/target/email_mask_2048_mid.json");
+      break;
+    default:
+      throw new Error(`Unknown circuit: ${circuitName}`);
+  }
+
+  const circuit = (module.default ?? module) as CompiledCircuit;
+  circuitCache.set(circuitName, circuit);
+  console.log(`📦 [CIRCUIT] Cached circuit: ${circuitName}`);
+
+  return circuit;
+}
+
+/**
+ * Clear the circuit cache to free memory
+ * Call this when you need to reduce memory footprint
+ */
+export function clearCircuitCache(): void {
+  const size = circuitCache.size;
+  circuitCache.clear();
+  console.log(`📦 [CIRCUIT] Cleared ${size} cached circuit(s)`);
+}
+
+// Circuit configurations (without loaded circuit data)
+interface CircuitConfig {
+  name: string;
+  maxHeaderLength: number;
+  maxBodyLength: number;
+  keyBits: number;
+}
+
+const CIRCUIT_CONFIGS: CircuitConfig[] = circuitConfigs.circuits.map((config) => ({
   name: config.name,
-  circuit: circuitJsonMap[config.name],
   maxHeaderLength: config.maxHeaderLength,
   maxBodyLength: config.maxBodyLength,
   keyBits: config.keyBits,
@@ -54,15 +95,19 @@ interface ProofDataWithMetadata extends ProofData {
 }
 
 /**
- * Select the appropriate circuit based on DKIM key size and body mask length
+ * Select and load the appropriate circuit based on DKIM key size and body mask length
  *
  * @param keyBits - The DKIM RSA key size in bits (1024 or 2048)
  * @param headerMaskLength - Length of the header mask array (for logging only)
  * @param bodyMaskLength - Length of the body mask array
- * @returns The circuit configuration that can accommodate the key size and body size
+ * @returns The circuit configuration with loaded circuit data
  * @throws Error if no circuit supports the given key size
  */
-function selectCircuit(keyBits: number, headerMaskLength: number, bodyMaskLength: number) {
+async function selectCircuit(
+  keyBits: number,
+  headerMaskLength: number,
+  bodyMaskLength: number
+): Promise<CircuitConfig & { circuit: CompiledCircuit }> {
   // Filter circuits by key size
   const keyMatchingCircuits = CIRCUIT_CONFIGS.filter(config => config.keyBits === keyBits);
 
@@ -75,17 +120,30 @@ function selectCircuit(keyBits: number, headerMaskLength: number, bodyMaskLength
   }
 
   // Find the smallest circuit that can accommodate the body mask length
+  let selectedConfig: CircuitConfig | null = null;
+
   for (const config of keyMatchingCircuits) {
     if (bodyMaskLength <= config.maxBodyLength) {
-      console.log(`📦 [CIRCUIT] Selected ${config.name} (key: ${keyBits}-bit, header: ${headerMaskLength}/${config.maxHeaderLength}, body: ${bodyMaskLength}/${config.maxBodyLength})`);
-      return config;
+      selectedConfig = config;
+      break;
     }
   }
 
-  // If no circuit can accommodate, use the largest one for this key size and log a warning
-  const largest = keyMatchingCircuits[keyMatchingCircuits.length - 1];
-  console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits for ${keyBits}-bit keys. Using largest circuit: ${largest.name}`);
-  return largest;
+  // If no circuit can accommodate, use the largest one for this key size
+  if (!selectedConfig) {
+    selectedConfig = keyMatchingCircuits[keyMatchingCircuits.length - 1];
+    console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits for ${keyBits}-bit keys. Using largest circuit: ${selectedConfig.name}`);
+  } else {
+    console.log(`📦 [CIRCUIT] Selected ${selectedConfig.name} (key: ${keyBits}-bit, header: ${headerMaskLength}/${selectedConfig.maxHeaderLength}, body: ${bodyMaskLength}/${selectedConfig.maxBodyLength})`);
+  }
+
+  // Load the circuit (from cache or dynamically)
+  const circuit = await loadCircuit(selectedConfig.name);
+
+  return {
+    ...selectedConfig,
+    circuit,
+  };
 }
 
 /**
@@ -129,12 +187,24 @@ export const handleGenerateProof = async (
     const keyBits = dkimResult.modulusLength;
     console.log(`🔑 [DKIM] Detected ${keyBits}-bit RSA key`);
 
-    // Select circuit based on key size and body mask length
-    const circuitConfig = selectCircuit(keyBits, headerMask.length, bodyMask.length);
+    // Select and load circuit based on key size and body mask length
+    const circuitConfig = await selectCircuit(keyBits, headerMask.length, bodyMask.length);
     const selectedCircuit = circuitConfig.circuit;
 
     const noir = new Noir(selectedCircuit);
-    const backend = new UltraHonkBackend(selectedCircuit.bytecode);
+
+    // Configure multi-threading for proof generation
+    // Requires cross-origin isolation (COOP/COEP headers) for SharedArrayBuffer
+    const threads = self.crossOriginIsolated
+      ? (navigator.hardwareConcurrency || 4)
+      : 1;
+    console.log(`[THREADS] Cross-origin isolated: ${self.crossOriginIsolated}, using ${threads} thread(s)`);
+
+    // const backend = new 
+    
+    const backend = new UltraHonkBackend(selectedCircuit.bytecode, {
+      threads
+    });
 
     const inputParams = {
       maxHeadersLength: circuitConfig.maxHeaderLength,
@@ -205,61 +275,67 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
     }
 
     // Determine which circuit to use for verification
-    let circuitToUse: CompiledCircuit | null = null;
+    let detectedCircuitName: string | null = null;
 
     if (circuitName) {
       // Use specified circuit
       const config = CIRCUIT_CONFIGS.find(c => c.name === circuitName);
       if (config) {
-        circuitToUse = config.circuit;
+        detectedCircuitName = circuitName;
         console.log(`🔍 [VERIFY] Using specified circuit: ${circuitName}`);
       } else {
         console.warn(`⚠️ [VERIFY] Circuit name "${circuitName}" not found, trying to detect...`);
       }
     }
 
-    if (!circuitToUse) {
+    if (!detectedCircuitName) {
       // Try to detect from proof metadata
       const proofWithMeta = proof as ProofDataWithMetadata;
       if (proofWithMeta.__circuitName) {
         const config = CIRCUIT_CONFIGS.find(c => c.name === proofWithMeta.__circuitName);
         if (config) {
-          circuitToUse = config.circuit;
-          console.log(`🔍 [VERIFY] Detected circuit from metadata: ${proofWithMeta.__circuitName}`);
+          detectedCircuitName = proofWithMeta.__circuitName;
+          console.log(`🔍 [VERIFY] Detected circuit from metadata: ${detectedCircuitName}`);
         }
       }
     }
 
-    if (!circuitToUse) {
-      // Try all circuits (fallback)
-      console.log("🔍 [VERIFY] Circuit not specified or detected, trying all circuits...");
-      for (const config of CIRCUIT_CONFIGS) {
-        try {
-          const backend = new UltraHonkBackend(config.circuit.bytecode);
-          const isValid = await backend.verifyProof(proof);
-          if (isValid) {
-            console.log(`✅ [VERIFY] Verification successful with circuit: ${config.name}`);
-            return true;
-          }
-        } catch {
-          // Try next circuit
-          continue;
-        }
-      }
-      console.error("❌ [VERIFY] Proof verification failed with all circuits");
-      return false;
+    // If we have a specific circuit, load and verify with it
+    if (detectedCircuitName) {
+      const circuitToUse = await loadCircuit(detectedCircuitName);
+      const backend = new UltraHonkBackend(circuitToUse.bytecode);
+      console.log("🔍 [VERIFY] Calling backend.verifyProof()...");
+      const isValid = await backend.verifyProof(proof);
+      console.log("✅ [VERIFY] Verification result:", isValid);
+      return isValid;
     }
 
-    const backend = new UltraHonkBackend(circuitToUse.bytecode);
-    console.log("🔍 [VERIFY] Calling backend.verifyProof()...");
-    const isValid = await backend.verifyProof(proof);
-    console.log("✅ [VERIFY] Verification result:", isValid);
-    return isValid;
+    // Fallback: try all circuits sequentially (lazy loading each)
+    console.warn("⚠️ [VERIFY] Circuit not specified or detected. Trying all circuits sequentially...");
+    console.warn("⚠️ [VERIFY] For better performance, include circuit metadata in proofs.");
+
+    for (const config of CIRCUIT_CONFIGS) {
+      try {
+        console.log(`🔍 [VERIFY] Trying circuit: ${config.name}`);
+        const circuit = await loadCircuit(config.name);
+        const backend = new UltraHonkBackend(circuit.bytecode);
+        const isValid = await backend.verifyProof(proof);
+        if (isValid) {
+          console.log(`✅ [VERIFY] Verification successful with circuit: ${config.name}`);
+          return true;
+        }
+      } catch {
+        // Try next circuit
+        continue;
+      }
+    }
+
+    console.error("❌ [VERIFY] Proof verification failed with all circuits");
+    return false;
   } catch (e) {
     console.error("❌ [VERIFY] Error:", e);
     if (e instanceof Error) {
       console.error("❌ [VERIFY] Error message:", e.message);
-      // Check if error message contains the comma-separated string
       if (e.message.includes(',')) {
         console.error("❌ [VERIFY] ERROR CONTAINS COMMA-SEPARATED STRING - This suggests a Uint8Array was converted to string!");
       }
