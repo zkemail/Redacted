@@ -397,10 +397,10 @@ function Header({ navigate, onShare }: { navigate: (path: string) => void; onSha
           onClick={() => navigate("/")}
         >
           <img
-            src={WhistleblowerLogo}
+            src={RedactedLogo}
             height={16}
             width={104}
-            alt="Whistleblow Logo"
+            alt="Redacted Logo"
           />
         </div>
         <div className="flex flex-row gap-2 items-center relative">
@@ -453,10 +453,10 @@ function Header({ navigate, onShare }: { navigate: (path: string) => void; onSha
             onClick={() => navigate("/")}
           >
             <img
-              src={WhistleblowerLogo}
+              src={RedactedLogo}
               height={16}
               width={104}
-              alt="Whistleblow Logo"
+              alt="Redacted Logo"
             />
           </div>
           <div className="w-px h-6 bg-[#D4D4D4]" />

@@ -32,6 +32,18 @@ export default function UploadModal({
       try {
         const text = await file.text();
         const parsedEmail = await parseEmlFile(text);
+
+        // Check body size against maximum supported circuit size (~8KB)
+        const MAX_BODY_SIZE = 8192;
+        const bodySize = parsedEmail.dkimCanonicalizedBody?.length || 0;
+
+        if (bodySize > MAX_BODY_SIZE) {
+          setError(
+            `Email body is too large (${(bodySize / 1024).toFixed(1)}KB). Maximum supported size is ~8KB.`
+          );
+          return;
+        }
+
         onEmailParsed(parsedEmail, text); // Pass original EML content
         onClose();
       } catch (err) {
