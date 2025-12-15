@@ -171,14 +171,8 @@ export default function MainApp() {
       }
     } catch (error) {
       console.error("Error generating proof:", error);
-      // Check for body size limit error
       const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes("longer than max") || errorMsg.includes("Remaining body")) {
-        setToast({
-          type: 'error',
-          message: 'Email body is too large. This app supports emails up to ~8KB body size.',
-        });
-      } else if (errorMsg.includes("Unsupported DKIM key size")) {
+      if (errorMsg.includes("Unsupported DKIM key size")) {
         setToast({ type: 'error', message: errorMsg });
       } else {
         setToast({ type: 'error', message: 'Failed to generate proof. Please try again.' });
