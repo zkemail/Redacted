@@ -70,6 +70,36 @@ export default function MainApp() {
     }
   }, [toast]);
 
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isUndo = isMac
+        ? e.metaKey && !e.shiftKey && e.key === 'z'
+        : e.ctrlKey && e.key === 'z';
+      const isRedo = isMac
+        ? e.metaKey && e.shiftKey && e.key === 'z'
+        : e.ctrlKey && e.key === 'y';
+
+      if (isUndo && canUndo && undoRedoHandlers?.undo) {
+        e.preventDefault();
+        undoRedoHandlers.undo();
+      } else if (isRedo && canRedo && undoRedoHandlers?.redo) {
+        e.preventDefault();
+        undoRedoHandlers.redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, undoRedoHandlers]);
+
   const handleToggleMask = (field: string) => {
     const newMaskedFields = new Set(maskedFields);
     if (newMaskedFields.has(field)) {
