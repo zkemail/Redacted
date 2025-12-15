@@ -84,7 +84,7 @@ export default function Home() {
             <div className="flex flex-col text-3xl lg:text-5xl font-heading text-center px-3 py-2">
               <div className="mx-2">Reveal the truth anonymously</div>
               <div className="relative inline-block mx-auto px-2">
-                <span className="relative z-10">protect your identity.</span>
+                <span className="relative z-10">Protect your identity</span>
                 <span className="absolute -inset-1 sm:-inset-2 md:-inset-3 z-0 bg-[url('/heading-bg.png')] bg-no-repeat bg-center sm:bg-contain bg-cover" />
               </div>
             </div>
