@@ -8,7 +8,7 @@ import { parseMaskedHeader } from "../utils/headerParser";
 import MaskedText from "../components/MaskedText";
 import ActionBar from "../components/ActionBar";
 import VerificationUrlModal from "../components/VerificationUrlModal";
-import WhistleblowerLogo from "../assets/WhistleblowerLogo.svg";
+import RedactedLogo from "../assets/RedactedLogo.svg";
 import ShareIcon from "../assets/ShareIcon.svg";
 import HelpIcon from "../assets/HelpIcon.svg";
 import CloseIcon from "../assets/CloseIcon.svg";
