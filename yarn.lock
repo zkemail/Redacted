@@ -1024,6 +1024,13 @@
   resolved "https://registry.yarnpkg.com/@phosphor-icons/react/-/react-2.1.10.tgz#3a97ec5b7a4b8d53afeb29125bc17e74ed2daf92"
   integrity sha512-vt8Tvq8GLjheAZZYa+YG/pW7HDbov8El/MANW8pOAz4eGxrwhnbfrQZq0Cp4q8zBEu8NIhHdnr+r8thnfRSNYA==
 
+"@posthog/core@1.8.0":
+  version "1.8.0"
+  resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.8.0.tgz#af91bfd983f06eff8a80c02541e34c9726552260"
+  integrity sha512-SfmG1EdbR+2zpQccgBUxM/snCROB9WGkY7VH1r9iaoTNqoaN9IkmIEA/07cZLY4DxVP8jt6Vdfe3s84xksac1g==
+  dependencies:
+    cross-spawn "^7.0.6"
+
 "@rolldown/pluginutils@1.0.0-beta.53":
   version "1.0.0-beta.53"
   resolved "https://registry.yarnpkg.com/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.53.tgz#c57a5234ae122671aff6fe72e673a7ed90f03f87"
@@ -2136,6 +2143,11 @@ cookie@~0.7.1:
   resolved "https://registry.yarnpkg.com/cookie/-/cookie-0.7.2.tgz#556369c472a2ba910f2979891b526b3436237ed7"
   integrity sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==
 
+core-js@^3.38.1:
+  version "3.47.0"
+  resolved "https://registry.yarnpkg.com/core-js/-/core-js-3.47.0.tgz#436ef07650e191afeb84c24481b298bd60eb4a17"
+  integrity sha512-c3Q2VVkGAUyupsjRnaNX6u8Dq2vAdzm9iuPj5FW0fRxzlxgq9Q39MDq10IvmQSpLgHQNyQzQmOo6bgGHmH3NNg==
+
 core-util-is@~1.0.0:
   version "1.0.3"
   resolved "https://registry.yarnpkg.com/core-util-is/-/core-util-is-1.0.3.tgz#a6042d3634c2b27e9328f837b965fac83808db85"
@@ -2789,6 +2801,11 @@ ffjavascript@^0.2.45, ffjavascript@^0.2.48:
     wasmbuilder "0.0.16"
     wasmcurves "0.2.2"
     web-worker "1.2.0"
+
+fflate@^0.4.8:
+  version "0.4.8"
+  resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.8.tgz#f90b82aefbd8ac174213abb338bd7ef848f0f5ae"
+  integrity sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==
 
 fflate@^0.8.0:
   version "0.8.2"
@@ -3929,6 +3946,22 @@ postcss@^8.5.6:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
+posthog-js@^1.200.1:
+  version "1.309.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.309.0.tgz#bdb95c7af94bc18366eb2024f1f49086d6b940e7"
+  integrity sha512-SmFF0uKX3tNTgQOW4mR4shGLQ0YYG0FXyKTz13SbIH83/FtAJedppOIL7s0y9e7rjogBh6LsPekphhchs9Kh1Q==
+  dependencies:
+    "@posthog/core" "1.8.0"
+    core-js "^3.38.1"
+    fflate "^0.4.8"
+    preact "^10.19.3"
+    web-vitals "^4.2.4"
+
+preact@^10.19.3:
+  version "10.28.0"
+  resolved "https://registry.yarnpkg.com/preact/-/preact-10.28.0.tgz#a851300df42842797046545e4172a4128d158755"
+  integrity sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==
+
 prelude-ls@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/prelude-ls/-/prelude-ls-1.2.1.tgz#debc6489d7a6e6b0e7611888cec880337d316396"
@@ -4760,6 +4793,11 @@ wasmcurves@0.2.2:
   integrity sha512-JRY908NkmKjFl4ytnTu5ED6AwPD+8VJ9oc94kdq7h5bIwbj0L4TDJ69mG+2aLs2SoCmGfqIesMWTEJjtYsoQXQ==
   dependencies:
     wasmbuilder "0.0.16"
+
+web-vitals@^4.2.4:
+  version "4.2.4"
+  resolved "https://registry.yarnpkg.com/web-vitals/-/web-vitals-4.2.4.tgz#1d20bc8590a37769bd0902b289550936069184b7"
+  integrity sha512-r4DIlprAGwJ7YM11VZp4R884m0Vmgr6EAKe3P+kO0PPj3Unqyvv59rczf6UiGcb9Z8QxZVcqKNwv/g0WNdWwsw==
 
 web-worker@1.2.0:
   version "1.2.0"
