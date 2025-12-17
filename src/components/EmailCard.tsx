@@ -547,6 +547,7 @@ export default function EmailCard({
 
   // Selection masking state (for Body)
   const bodyContainerRef = useRef<HTMLDivElement | null>(null);
+  const bodyMenuRef = useRef<HTMLDivElement | null>(null);
   const savedSelectionRangeRef = useRef<Range | null>(null);
   const savedSelectionOffsetsRef = useRef<{ start: number; end: number } | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -1174,6 +1175,28 @@ export default function EmailCard({
     });
   }, [showMaskButton, restoreSelectionFromOffsets]);
 
+  // Close body context menu when clicking outside
+  useEffect(() => {
+    if (!showMaskButton) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      // Check if click is outside the menu and outside the body container
+      const target = event.target as Node;
+      const isClickInsideMenu = bodyMenuRef.current?.contains(target);
+      const isClickInsideBody = bodyContainerRef.current?.contains(target);
+
+      if (!isClickInsideMenu && !isClickInsideBody) {
+        clearSelectionState();
+      }
+    };
+
+    // Use capture phase to catch clicks before they bubble
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showMaskButton, clearSelectionState]);
+
   const handleMaskSelection = useCallback(() => {
     if (!currentSelection) {
       return;
@@ -1737,9 +1760,6 @@ export default function EmailCard({
             }
           }
         }
-
-        // Count of masked bits can be useful for debugging; computed lazily when needed
-        // (no-op currently to keep linter happy without extra logs)
       };
 
       // Map each header field using text-search in canonicalized headers
@@ -2107,15 +2127,25 @@ export default function EmailCard({
           ></div>
           {showMaskButton && currentSelection && (
             <div
+              ref={bodyMenuRef}
               className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
               style={{
                 left: `${maskButtonPosition.x}px`,
                 top: `${maskButtonPosition.y}px`,
               }}
+              onClick={(e) => {
+                // Stop propagation to prevent click-outside from closing menu immediately
+                // The button onClick handlers will close the menu after action
+                e.stopPropagation();
+              }}
             >
               <button
                 type="button"
-                onClick={handleMaskSelection}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMaskSelection();
+                  // Menu will close via handleMaskSelection clearing state
+                }}
                 className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2] hover:text-white rounded-lg transition-colors ${
                   currentSelection.maskState === "unmasked" ||
                   currentSelection.maskState === "partial"
@@ -2127,7 +2157,11 @@ export default function EmailCard({
               </button>
               <button
                 type="button"
-                onClick={handleUnmaskSelection}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleUnmaskSelection();
+                  // Menu will close via handleUnmaskSelection clearing state
+                }}
                 className={`text-left px-3 py-0.5 text-sm transition-colors rounded-lg hover:bg-[#206AC2] hover:text-white ${
                   currentSelection.maskState === "masked" ||
                   currentSelection.maskState === "partial"

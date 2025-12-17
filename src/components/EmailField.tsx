@@ -41,6 +41,7 @@ export default function EmailField({
   onActivate,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
   const [maskButtonPosition, setMaskButtonPosition] = useState<{
     x: number;
@@ -126,6 +127,32 @@ export default function EmailField({
     setHasActiveSelection(false);
   }, [clearTrigger]);
 
+  // Close context menu when clicking outside
+  useEffect(() => {
+    if (!showMaskButton) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      // Check if click is outside the menu and outside the field
+      const target = event.target as Node;
+      const isClickInsideMenu = menuRef.current?.contains(target);
+      const isClickInsideField = fieldRef.current?.contains(target);
+
+      if (!isClickInsideMenu && !isClickInsideField) {
+        setShowMaskButton(false);
+        setCurrentSelection(null);
+        setHasActiveSelection(false);
+        savedSelectionRangeRef.current = null;
+        savedSelectionOffsetsRef.current = null;
+      }
+    };
+
+    // Use capture phase to catch clicks before they bubble
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showMaskButton]);
+
   const escapeHtml = useCallback((text: string) => {
     return text
       .replace(/&/g, "&amp;")
@@ -198,7 +225,7 @@ export default function EmailField({
     return createMaskedHtml(value, sanitizedMaskBits);
   }, [value, sanitizedMaskBits, createMaskedHtml]);
 
-  const handleMouseUp = useCallback((e?: React.MouseEvent) => {
+  const handleMouseUp = useCallback(() => {
     // If selection masking is disabled, don't show mask buttons
     if (disableSelectionMasking) {
       return;
@@ -279,8 +306,6 @@ export default function EmailField({
           // This is tricky - we'd need to find the text nodes and adjust
           // For now, just clear selection if it includes domain
           if (rangeToEnd.toString().length > maskableRange.end) {
-            mouseDownPosRef.current = null;
-            isSelectingRef.current = false;
             sel.removeAllRanges();
             setShowMaskButton(false);
             setCurrentSelection(null);
@@ -540,8 +565,8 @@ export default function EmailField({
       <span
         ref={fieldRef}
         className="block md:flex-1 text-[#111314] text-base font-normal md:whitespace-nowrap relative select-text"
-        onMouseUp={(e) => {
-          handleMouseUp(e);
+        onMouseUp={() => {
+          handleMouseUp();
         }}
         onMouseDown={() => {
           // Clear active selection state when starting a new interaction
@@ -594,15 +619,25 @@ export default function EmailField({
       {/* Mask/Unmask dropdown menu */}
       {showMaskButton && currentSelection && isActive && (
         <div
+          ref={menuRef}
           className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
           style={{
             left: `${maskButtonPosition.x}px`,
             top: `${maskButtonPosition.y}px`,
           }}
+          onClick={(e) => {
+            // Stop propagation to prevent click-outside from closing menu immediately
+            // The button onClick handlers will close the menu after action
+            e.stopPropagation();
+          }}
         >
           <button
             type="button"
-            onClick={handleMaskSelection}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleMaskSelection();
+              // Menu will close via handleMaskSelection clearing state
+            }}
             className={`text-left px-3 py-0.5 text-sm hover:bg-[#206AC2] hover:text-white rounded-lg transition-colors ${
               currentSelection.maskState === "unmasked" ||
               currentSelection.maskState === "partial"
@@ -614,7 +649,11 @@ export default function EmailField({
           </button>
           <button
             type="button"
-            onClick={handleUnmaskSelection}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleUnmaskSelection();
+              // Menu will close via handleUnmaskSelection clearing state
+            }}
             className={`text-left px-3 py-0.5 text-sm transition-colors rounded-lg hover:bg-[#206AC2] hover:text-white ${
               currentSelection.maskState === "masked" ||
               currentSelection.maskState === "partial"
