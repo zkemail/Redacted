@@ -21,6 +21,8 @@ interface EmailFieldProps {
   useBlackMask?: boolean;
   clearTrigger?: number;
   onFieldInteraction?: () => void;
+  isActive?: boolean; // Whether this field's context menu is the active one
+  onActivate?: () => void; // Request to make this field's context menu active
 }
 
 export default function EmailField({
@@ -35,6 +37,8 @@ export default function EmailField({
   useBlackMask = false,
   clearTrigger,
   onFieldInteraction,
+  isActive = true,
+  onActivate,
 }: EmailFieldProps) {
   const fieldRef = useRef<HTMLSpanElement | null>(null);
   const [showMaskButton, setShowMaskButton] = useState(false);
@@ -48,10 +52,6 @@ export default function EmailField({
     maskState: "masked" | "unmasked" | "partial";
   } | null>(null);
   const [hasActiveSelection, setHasActiveSelection] = useState(false);
-  
-  // Track mouse down position to detect if user is selecting (dragging) vs clicking
-  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
-  const isSelectingRef = useRef(false);
 
   // Refs to save selection for restoration after re-render
   const savedSelectionRangeRef = useRef<Range | null>(null);
@@ -138,7 +138,6 @@ export default function EmailField({
   const createMaskedHtml = useCallback(
     (text: string, bits: number[]) => {
       if (!text || bits.length !== text.length) {
-        console.warn(`[EmailField] Text and bits length mismatch: text=${text.length}, bits=${bits.length}`);
         return escapeHtml(text);
       }
 
@@ -202,44 +201,16 @@ export default function EmailField({
   const handleMouseUp = useCallback((e?: React.MouseEvent) => {
     // If selection masking is disabled, don't show mask buttons
     if (disableSelectionMasking) {
-      // Still check if it was a click (not a selection) to trigger field interaction
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        // If mouse moved less than 5px, it's a click, not a selection
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       return;
     }
 
     const container = fieldRef.current;
     if (!container) {
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       return;
     }
 
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) {
-      // No selection made - check if it was a click
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        // If mouse moved less than 5px, it's a click, not a selection
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       setShowMaskButton(false);
       setCurrentSelection(null);
       setHasActiveSelection(false);
@@ -249,18 +220,6 @@ export default function EmailField({
     const range = selection.getRangeAt(0);
     const selectionText = range.toString();
     if (!selectionText.trim()) {
-      // Check if it was a click
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       setShowMaskButton(false);
       setCurrentSelection(null);
       setHasActiveSelection(false);
@@ -268,18 +227,6 @@ export default function EmailField({
     }
 
     if (!container.contains(range.commonAncestorContainer)) {
-      // Selection is outside container - check if it was a click
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       setShowMaskButton(false);
       setCurrentSelection(null);
       setHasActiveSelection(false);
@@ -312,18 +259,6 @@ export default function EmailField({
     if (restrictToNameOnly) {
       // If selection is entirely in the domain part, don't allow it
       if (selectionStart >= maskableRange.end && selectionEnd > maskableRange.end) {
-        // Check if it was a click
-        if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-          const mouseMoveDistance = Math.sqrt(
-            Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-            Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-          );
-          if (mouseMoveDistance < 5) {
-            onFieldInteraction?.();
-          }
-        }
-        mouseDownPosRef.current = null;
-        isSelectingRef.current = false;
         setShowMaskButton(false);
         setCurrentSelection(null);
         setHasActiveSelection(false);
@@ -344,16 +279,6 @@ export default function EmailField({
           // This is tricky - we'd need to find the text nodes and adjust
           // For now, just clear selection if it includes domain
           if (rangeToEnd.toString().length > maskableRange.end) {
-            // Check if it was a click
-            if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-              const mouseMoveDistance = Math.sqrt(
-                Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-                Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-              );
-              if (mouseMoveDistance < 5) {
-                onFieldInteraction?.();
-              }
-            }
             mouseDownPosRef.current = null;
             isSelectingRef.current = false;
             sel.removeAllRanges();
@@ -367,18 +292,6 @@ export default function EmailField({
     }
 
     if (selectionStart === selectionEnd) {
-      // Check if it was a click
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       setShowMaskButton(false);
       setCurrentSelection(null);
       setHasActiveSelection(false);
@@ -387,18 +300,6 @@ export default function EmailField({
 
     const selectionBits = localMaskBits.slice(selectionStart, selectionEnd);
     if (selectionBits.length === 0) {
-      // Check if it was a click
-      if (e && mouseDownPosRef.current && !isSelectingRef.current) {
-        const mouseMoveDistance = Math.sqrt(
-          Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-          Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-        );
-        if (mouseMoveDistance < 5) {
-          onFieldInteraction?.();
-        }
-      }
-      mouseDownPosRef.current = null;
-      isSelectingRef.current = false;
       setShowMaskButton(false);
       setCurrentSelection(null);
       setHasActiveSelection(false);
@@ -425,6 +326,9 @@ export default function EmailField({
     savedSelectionRangeRef.current = clonedRange;
     savedSelectionOffsetsRef.current = { start: selectionStart, end: selectionEnd };
 
+    // Tell parent this field now owns the active context menu
+    onActivate?.();
+
     setMaskButtonPosition({ x, y });
     setCurrentSelection({
       start: selectionStart,
@@ -432,11 +336,7 @@ export default function EmailField({
       maskState: maskStateForSelection,
     });
     setShowMaskButton(true);
-    
-    // Clear mouse tracking since we have a selection
-    mouseDownPosRef.current = null;
-    isSelectingRef.current = false;
-  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange, disableSelectionMasking, onFieldInteraction]);
+  }, [value.length, localMaskBits, restrictToNameOnly, maskableRange, disableSelectionMasking]);
 
   // Helper function to restore selection from text offsets
   const restoreSelectionFromOffsets = useCallback((start: number, end: number) => {
@@ -643,11 +543,7 @@ export default function EmailField({
         onMouseUp={(e) => {
           handleMouseUp(e);
         }}
-        onMouseDown={(e) => {
-          // Save mouse down position to detect if user is selecting vs clicking
-          mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-          isSelectingRef.current = false;
-          
+        onMouseDown={() => {
           // Clear active selection state when starting a new interaction
           if (hasActiveSelection) {
             savedSelectionRangeRef.current = null;
@@ -655,18 +551,6 @@ export default function EmailField({
             setHasActiveSelection(false);
             setShowMaskButton(false);
             setCurrentSelection(null);
-          }
-        }}
-        onMouseMove={(e) => {
-          // If mouse moves significantly, user is selecting, not clicking
-          if (mouseDownPosRef.current) {
-            const mouseMoveDistance = Math.sqrt(
-              Math.pow(e.clientX - mouseDownPosRef.current.x, 2) +
-              Math.pow(e.clientY - mouseDownPosRef.current.y, 2)
-            );
-            if (mouseMoveDistance > 5) {
-              isSelectingRef.current = true;
-            }
           }
         }}
         dangerouslySetInnerHTML={{ __html: maskedHtml }}
@@ -708,7 +592,7 @@ export default function EmailField({
       )}
 
       {/* Mask/Unmask dropdown menu */}
-      {showMaskButton && currentSelection && (
+      {showMaskButton && currentSelection && isActive && (
         <div
           className="absolute z-10 bg-[#F5F3EF] border flex flex-col border-[#D4D4D4] text-sm rounded-lg shadow-lg p-1 min-w-[60px] w-fit transition-all duration-150 hover:shadow-xl"
           style={{
