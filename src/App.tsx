@@ -12,6 +12,7 @@ import { handleGenerateProof, handleVerifyProof as verifyProof } from "./lib";
 import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
+import { trackEvent } from "./utils/analytics";
 
 interface EmailState {
   from: string;
@@ -187,6 +188,7 @@ export default function MainApp() {
 
       // Proof generated successfully (handleGenerateProof throws on error)
       setGeneratedProof(proof);
+      trackEvent("proof_generation_success");
 
       // Upload proof to Google Cloud Storage
       try {
@@ -201,6 +203,7 @@ export default function MainApp() {
       }
     } catch (error) {
       console.error("Error generating proof:", error);
+      trackEvent("proof_generation_failure");
       const errorMsg = error instanceof Error ? error.message : String(error);
       if (errorMsg.includes("Unsupported DKIM key size")) {
         setToast({ type: 'error', message: errorMsg });
@@ -232,11 +235,13 @@ export default function MainApp() {
           verified: true,
           message: "✅ Proof verified successfully! The email content is authentic.",
         });
+        trackEvent("proof_validation_success");
       } else {
         setVerificationStatus({
           verified: false,
           message: "❌ Proof verification failed. The proof may be invalid or corrupted.",
         });
+        trackEvent("proof_validation_failure", { reason: "invalid_or_corrupted" });
       }
     } catch (error) {
       console.error("Error verifying proof:", error);
@@ -244,6 +249,7 @@ export default function MainApp() {
         verified: false,
         message: "❌ Error verifying proof. Please try again.",
       });
+      trackEvent("proof_validation_failure", { reason: "exception" });
     } finally {
       setIsVerifyingProof(false);
     }

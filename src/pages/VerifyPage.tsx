@@ -14,6 +14,7 @@ import HelpIcon from "../assets/HelpIcon.svg";
 import CloseIcon from "../assets/CloseIcon.svg";
 import HamburgerIcon from "../assets/HamburgerIcon.svg";
 import type { ProofData } from "@aztec/bb.js";
+import { trackEvent } from "../utils/analytics";
 
 export default function VerifyPage() {
   const navigate = useNavigate();
@@ -193,12 +194,18 @@ export default function VerifyPage() {
           ? "Proof verified successfully! The email content is authentic."
           : "Proof verification failed. The email content may have been tampered with.",
       });
+      if (isValid) {
+        trackEvent("proof_validation_success");
+      } else {
+        trackEvent("proof_validation_failure", { reason: "invalid_or_corrupted" });
+      }
     } catch (err) {
       console.error("Error verifying proof:", err);
       setVerificationStatus({
         verified: false,
         message: `Verification error: ${err instanceof Error ? err.message : "Unknown error"}`,
       });
+      trackEvent("proof_validation_failure", { reason: "exception" });
     } finally {
       setIsVerifying(false);
     }

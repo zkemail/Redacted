@@ -4,6 +4,7 @@ import FileDownloadIcon from "../assets/FileDownloadIcon.svg";
 import ArrowBendUpLeft from "../assets/ArrowBendUpLeft.svg";
 import ArrowBendUpRight from "../assets/ArrowBendUpRight.svg";
 import SealCheckIcon from "../assets/SealCheck.svg";
+import { trackEvent } from "../utils/analytics";
 interface ActionBarProps {
   onUndo?: () => void;
   onRedo?: () => void;
@@ -68,7 +69,11 @@ export default function ActionBar({
                   ? "cursor-default opacity-70"
                   : "cursor-pointer hover:opacity-80"
               }`}
-              onClick={() => !verifyDisabled && onVerifyProof?.()}
+              onClick={() => {
+                if (verifyDisabled) return;
+                trackEvent("verify_proof_click");
+                onVerifyProof?.();
+              }}
             >
               <div className="w-5 h-5 flex items-center justify-center">
                 {isVerifyingProof ? (
@@ -104,7 +109,11 @@ export default function ActionBar({
                     : "cursor-not-allowed opacity-50"
                   : "cursor-pointer hover:opacity-80"
               }`}
-              onClick={() => !isViewDownloadDisabled && onVerify?.()}
+              onClick={() => {
+                if (isViewDownloadDisabled) return;
+                trackEvent("view_and_download_click");
+                onVerify?.();
+              }}
             >
               <div className="w-5 h-5 flex items-center justify-center">
                 {isGeneratingProof ? (
