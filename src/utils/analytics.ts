@@ -42,3 +42,11 @@ export function trackPageView(path: string) {
   });
 }
 
+export function trackEvent(name: string, properties?: Record<string, unknown>) {
+  if (!isInitialized) return;
+  if (import.meta.env.DEV) {
+    console.log('[analytics] event', name, properties);
+  }
+  posthog.capture(name, properties);
+}
+
