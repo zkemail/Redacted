@@ -1999,7 +1999,6 @@ export default function EmailCard({
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
-          onFieldInteraction={triggerClearAllPopups}
           isActive={activeContext === "from"}
           onActivate={() => {
             // When a header field becomes active, clear body selection/menu
@@ -2020,7 +2019,6 @@ export default function EmailCard({
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
-          onFieldInteraction={triggerClearAllPopups}
           isActive={activeContext === "to"}
           onActivate={() => {
             clearSelectionState();
@@ -2040,7 +2038,6 @@ export default function EmailCard({
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
-          onFieldInteraction={triggerClearAllPopups}
           isActive={activeContext === "time"}
           onActivate={() => {
             clearSelectionState();
@@ -2062,7 +2059,6 @@ export default function EmailCard({
           disableSelectionMasking={disableSelectionMasking}
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
-          onFieldInteraction={triggerClearAllPopups}
           isActive={activeContext === "subject"}
           onActivate={() => {
             clearSelectionState();

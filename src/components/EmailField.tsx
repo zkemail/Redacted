@@ -20,7 +20,6 @@ interface EmailFieldProps {
   disableSelectionMasking?: boolean;
   useBlackMask?: boolean;
   clearTrigger?: number;
-  onFieldInteraction?: () => void;
   isActive?: boolean; // Whether this field's context menu is the active one
   onActivate?: () => void; // Request to make this field's context menu active
 }
@@ -36,7 +35,6 @@ export default function EmailField({
   disableSelectionMasking = false,
   useBlackMask = false,
   clearTrigger,
-  onFieldInteraction,
   isActive = true,
   onActivate,
 }: EmailFieldProps) {
