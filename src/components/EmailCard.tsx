@@ -79,6 +79,9 @@ export default function EmailCard({
 }: EmailCardProps) {
   const bodyText = email.bodyText ?? "";
 
+  // Track which context menu (if any) is currently active: one of the header fields or "body"
+  const [activeContext, setActiveContext] = useState<"from" | "to" | "time" | "subject" | "body" | null>(null);
+
   // Mask bits for all fields - use useMemo to compute initial values
   // Circuit-aligned semantics: 1 = reveal, 0 = mask
   const initialFromBits = useMemo(
@@ -696,7 +699,7 @@ export default function EmailCard({
         });
 
         return container.innerHTML;
-      } catch (error) {
+      } catch {
         return html;
       }
     },
@@ -829,8 +832,6 @@ export default function EmailCard({
 
 
         let globalIndex = 0;
-        let totalProcessed = 0;
-        let spansCreated = 0;
 
         // Now process each text node
         for (let nodeIdx = 0; nodeIdx < textNodes.length; nodeIdx++) {
@@ -872,7 +873,6 @@ export default function EmailCard({
                 }
                 span.textContent = segmentText;
                 fragments.push(span);
-                spansCreated++;
               } else {
                 fragments.push(doc.createTextNode(segmentText));
               }
@@ -880,7 +880,6 @@ export default function EmailCard({
               localIndex = segmentEnd;
             }
 
-            totalProcessed += nodeText.length;
             const fragment = doc.createDocumentFragment();
             fragments.forEach((node) => fragment.appendChild(node));
             currentNode.parentNode?.replaceChild(fragment, currentNode);
@@ -899,7 +898,7 @@ export default function EmailCard({
 
         // Scope the HTML content to prevent style leakage
         return scopeHtmlContent(processedHtml, "email-body-scoped");
-      } catch (error) {
+      } catch {
         return html;
       }
     },
@@ -952,6 +951,7 @@ export default function EmailCard({
   const triggerClearAllPopups = useCallback(() => {
     setClearTrigger(prev => prev + 1);
     clearSelectionState();
+    setActiveContext(null);
   }, [clearSelectionState]);
 
   const handleMouseUpOnBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1055,6 +1055,9 @@ export default function EmailCard({
     savedSelectionRangeRef.current = clonedRange;
     savedSelectionOffsetsRef.current = { start: selectionStart, end: selectionEnd };
 
+    // Activate body context menu and deactivate header menus
+    setActiveContext("body");
+
     setMaskButtonPosition({ x, y });
     setCurrentSelection({
       start: selectionStart,
@@ -1084,11 +1087,8 @@ export default function EmailCard({
       let startOffset = 0;
       let endNode: Node | null = null;
       let endOffset = 0;
-      let nodeCount = 0;
-
       let node = walker.nextNode();
       while (node) {
-        nodeCount++;
         const textLength = node.textContent?.length || 0;
         const nodeStart = currentOffset;
         const nodeEnd = currentOffset + textLength;
@@ -1123,7 +1123,7 @@ export default function EmailCard({
           return true;
         }
       }
-    } catch (error) {
+    } catch {
       // Error restoring selection
     }
     return false;
@@ -1486,13 +1486,6 @@ export default function EmailCard({
           // The actual field value starts at rawStart + displayOffset
           actualValueStart = range.rawStart + range.displayOffset;
           found = true;
-          console.log(`🔍 [MAP FIELD] ${fieldName} using ranges:`, {
-            rawStart: range.rawStart,
-            displayOffset: range.displayOffset,
-            actualValueStart,
-            fieldValue,
-            fieldBitsLength: fieldBits.length,
-          });
         } else {
           // Fallback: search for the header line
           const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
@@ -1520,14 +1513,6 @@ export default function EmailCard({
                   // Email is inside brackets - position is after the <
                   actualValueStart = lineStart + colonIndex + 1 + angleBracketStart + 1 + emailIndexInBrackets;
                   found = true;
-                  console.log(`🔍 [MAP FIELD] ${fieldName} found inside angle brackets (fallback):`, {
-                    line: line.substring(0, 100),
-                    angleBracketStart,
-                    emailIndexInBrackets,
-                    actualValueStart,
-                    fieldValue,
-                    fieldBitsLength: fieldBits.length,
-                  });
                 } else {
                   // Email not found inside brackets, try direct search
                   const emailIndex = valueSection.indexOf(fieldValue);
@@ -1604,26 +1589,14 @@ export default function EmailCard({
 
       // Map the mask bits to the found position
       if (found && actualValueStart >= 0) {
-        let bitsMapped = 0;
         const minLength = Math.min(fieldBits.length, fieldValue.length);
         for (let i = 0; i < minLength; i++) {
           if (actualValueStart + i < bits.length && actualValueStart + i >= 0) {
             bits[actualValueStart + i] = fieldBits[i] || 0;
-            if (fieldBits[i] === 1) bitsMapped++;
           }
         }
-        if (fieldName === 'from' || fieldName === 'to') {
-          console.log(`🔍 [MAP FIELD] ${fieldName} mapped:`, {
-            actualValueStart,
-            bitsMapped,
-            expectedBits: fieldBits.filter(b => b === 1).length,
-            fieldValueLength: fieldValue.length,
-            fieldBitsLength: fieldBits.length,
-            minLength,
-          });
-        }
       } else if (fieldName === 'from' || fieldName === 'to') {
-        console.warn(`🔍 [MAP FIELD] ${fieldName} NOT MAPPED - not found or invalid position`);
+        console.warn(`[EmailCard] Failed to map "${fieldName}" into original EML – not found or invalid position`);
       }
     };
 
@@ -1662,8 +1635,9 @@ export default function EmailCard({
         }
 
         if (headerStart < 0) {
-          console.log(`[HEADER RANGE] "${headerName}": prefix "${headerPrefix}" not found in canonicalized headers`);
-          console.log(`[HEADER RANGE] Canonicalized headers (first 500 chars): "${canonicalizedHeaders.substring(0, 500)}"`);
+          console.warn(
+            `[EmailCard] Header "${headerName}" prefix "${headerPrefix}" not found in canonicalized headers`,
+          );
           return null;
         }
 
@@ -1682,8 +1656,6 @@ export default function EmailCard({
         if (valueEnd < 0) {
           valueEnd = canonicalizedHeaders.length;
         }
-
-        console.log(`[HEADER RANGE] "${headerName}": found at positions ${valueStart}-${valueEnd}`);
         return { start: valueStart, end: valueEnd };
       };
 
@@ -1705,8 +1677,6 @@ export default function EmailCard({
 
         // Get the header line content for searching
         const headerLineContent = canonicalizedHeaders.slice(headerRange.start, headerRange.end);
-        console.log(`[HEADER MASK] ${fieldName}: header line content: "${headerLineContent}"`);
-        console.log(`[HEADER MASK] ${fieldName}: field value to find: "${fieldValue}"`);
 
         // Robust search: try multiple strategies to find the field value
         // These are FALLBACK strategies - each is only tried if the previous one failed.
@@ -1730,7 +1700,6 @@ export default function EmailCard({
             fieldValuePos = lowerPos;
             // Get the actual value from the header (with original case)
             actualValueInHeader = headerLineContent.slice(lowerPos, lowerPos + fieldValue.length);
-            console.log(`[HEADER MASK] ${fieldName}: found via case-insensitive search at offset ${lowerPos}`);
           }
         }
 
@@ -1745,17 +1714,16 @@ export default function EmailCard({
             if (emailInBrackets.toLowerCase() === fieldValue.toLowerCase()) {
               fieldValuePos = angleBracketStart + 1;
               actualValueInHeader = emailInBrackets;
-              console.log(`[HEADER MASK] ${fieldName}: found inside angle brackets at offset ${fieldValuePos}`);
             }
           }
         }
 
         if (fieldValuePos < 0) {
-          console.warn(`[HEADER MASK] ${fieldName}: field value "${fieldValue}" not found in header line using any strategy`);
+          console.warn(
+            `[EmailCard] Header mask: "${fieldName}" value "${fieldValue}" not found in canonicalized header line`,
+          );
           return;
         }
-
-        console.log(`[HEADER MASK] ${fieldName}: found field value at line offset ${fieldValuePos}, actual value: "${actualValueInHeader}"`);
 
         // Apply mask bits directly at the field value position
         // fieldBits[i] corresponds to fieldValue[i], which is at headerLineContent[fieldValuePos + i]
@@ -1770,8 +1738,8 @@ export default function EmailCard({
           }
         }
 
-        const maskedCount = fieldBits.filter(b => b === 0).length;
-        console.log(`[HEADER MASK] ${fieldName}: applied ${maskedCount} masked bits starting at position ${absoluteFieldStart}`);
+        // Count of masked bits can be useful for debugging; computed lazily when needed
+        // (no-op currently to keep linter happy without extra logs)
       };
 
       // Map each header field using text-search in canonicalized headers
@@ -1781,7 +1749,7 @@ export default function EmailCard({
       mapHeaderFieldMask(email.subject, subjectMaskBits, 'subject');
     } else {
       // Fallback to position-based approach if no canonicalized headers available
-      console.warn('[HEADER MASK] No canonicalized headers available, falling back to position-based mapping');
+      console.warn('[EmailCard] Header mask: no canonicalized headers available, falling back to position-based mapping');
       mapFieldToOriginal(email.from, fromMaskBits, 'from');
       mapFieldToOriginal(email.to, toMaskBits, 'to');
       mapFieldToOriginal(email.time, timeMaskBits, 'time');
@@ -1839,7 +1807,7 @@ export default function EmailCard({
       }
     } else if (!canonicalizedBody && bodyMaskBits.some(bit => bit === 0)) {
       // Fallback: use old approach with raw EML if no canonicalized body
-      console.warn('[BODY MASK] No canonicalized body available, falling back to raw EML search');
+      console.warn('[EmailCard] Body mask: no canonicalized body available, falling back to raw EML search');
 
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
@@ -2012,6 +1980,12 @@ export default function EmailCard({
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
           onFieldInteraction={triggerClearAllPopups}
+          isActive={activeContext === "from"}
+          onActivate={() => {
+            // When a header field becomes active, clear body selection/menu
+            clearSelectionState();
+            setActiveContext("from");
+          }}
         />
 
         <DashedBorder />
@@ -2027,6 +2001,11 @@ export default function EmailCard({
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
           onFieldInteraction={triggerClearAllPopups}
+          isActive={activeContext === "to"}
+          onActivate={() => {
+            clearSelectionState();
+            setActiveContext("to");
+          }}
         />
 
         <DashedBorder />
@@ -2042,6 +2021,11 @@ export default function EmailCard({
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
           onFieldInteraction={triggerClearAllPopups}
+          isActive={activeContext === "time"}
+          onActivate={() => {
+            clearSelectionState();
+            setActiveContext("time");
+          }}
         />
 
         <DashedBorder />
@@ -2059,6 +2043,11 @@ export default function EmailCard({
           useBlackMask={useBlackMask}
           clearTrigger={clearTrigger}
           onFieldInteraction={triggerClearAllPopups}
+          isActive={activeContext === "subject"}
+          onActivate={() => {
+            clearSelectionState();
+            setActiveContext("subject");
+          }}
         />
 
         <DashedBorder />
