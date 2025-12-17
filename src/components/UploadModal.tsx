@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { parseEmlFile, type ParsedEmail } from "../utils/emlParser";
 import EMLUploadIcon from "../assets/EMLUploadIcon.svg";
+import { trackEvent } from "../utils/analytics";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -22,7 +23,12 @@ export default function UploadModal({
   const handleFile = useCallback(
     async (file: File) => {
       if (!file.name.endsWith(".eml")) {
-        setError("Please upload a valid .eml file");
+        const message = "Please upload a valid .eml file";
+        setError(message);
+        trackEvent("eml_upload_failure", {
+          reason: "invalid_extension",
+          message,
+        });
         return;
       }
 
@@ -38,18 +44,28 @@ export default function UploadModal({
         const bodySize = parsedEmail.dkimCanonicalizedBody?.length || 0;
 
         if (bodySize > MAX_BODY_SIZE) {
-          setError(
-            `Email body is too large (${(bodySize / 1024).toFixed(1)}KB). Maximum supported size is ~8KB.`
-          );
+          const message = `Email body is too large (${(bodySize / 1024).toFixed(
+            1,
+          )}KB). Maximum supported size is ~8KB.`;
+          setError(message);
+          trackEvent("eml_upload_failure", {
+            reason: "body_too_large",
+            body_size: bodySize,
+            message,
+          });
           return;
         }
 
         onEmailParsed(parsedEmail, text); // Pass original EML content
         onClose();
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to parse email file",
-        );
+        const message =
+          err instanceof Error ? err.message : "Failed to parse email file";
+        setError(message);
+        trackEvent("eml_upload_failure", {
+          reason: "parse_error",
+          message,
+        });
       } finally {
         setIsProcessing(false);
       }
