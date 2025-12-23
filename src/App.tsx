@@ -317,7 +317,7 @@ export default function MainApp() {
           onHasMaskedContentChange={handleHasMaskedContentChange}
           onMaskedFieldsSync={handleMaskedFieldsSync}
           disableSelectionMasking={verificationUrl !== null}
-          useBlackMask={generatedProof !== null}
+          useBlackMask={verificationUrl !== null}
         />
       </main>
 
