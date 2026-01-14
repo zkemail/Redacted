@@ -155,7 +155,7 @@ src/
 
 ## Part of ZK Email
 
-Redacted is built on the [ZK Email](https://prove.email/) ecosystem—battle-tested infrastructure for privacy-preserving email verification trusted by leading organizations in the space.
+Redacted is built on the [ZK Email](https://zk.email/) ecosystem—battle-tested infrastructure for privacy-preserving email verification trusted by leading organizations in the space.
 
 ## Contributing
 
