@@ -27,7 +27,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",
-    "posthog-js": "^1.200.1",
+    "posthog-js": "^1.333.0",
     "tailwindcss": "^4.1.17",
     "vite": "^7.2.2",
     "vite-plugin-node-polyfills": "0.17.0"
