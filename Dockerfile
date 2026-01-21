@@ -12,9 +12,15 @@ RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.co
 WORKDIR /app
 
 # Accept build arguments for Vite environment variables
-# Render needs to pass this as a build argument
+# Render exposes these as env vars; we also declare them as build args for clarity
 ARG VITE_GCS_API_URL
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST
+
+# Ensure they are available as environment variables during the Vite build
 ENV VITE_GCS_API_URL=${VITE_GCS_API_URL}
+ENV VITE_POSTHOG_KEY=${VITE_POSTHOG_KEY}
+ENV VITE_POSTHOG_HOST=${VITE_POSTHOG_HOST}
 
 # Copy package files
 COPY package.json yarn.lock ./
@@ -25,16 +31,26 @@ RUN yarn install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Create .env.production file for Vite if VITE_GCS_API_URL is provided
+# Create .env.production file for Vite with any provided VITE_* variables
 # Vite automatically loads .env.production during build
-RUN if [ -n "$VITE_GCS_API_URL" ]; then \
-      echo "VITE_GCS_API_URL=$VITE_GCS_API_URL" > .env.production && \
-      echo "Created .env.production with VITE_GCS_API_URL=$VITE_GCS_API_URL"; \
+RUN rm -f .env.production && \
+    touch .env.production && \
+    if [ -n "$VITE_GCS_API_URL" ]; then \
+      echo "VITE_GCS_API_URL=$VITE_GCS_API_URL" >> .env.production; \
+    fi && \
+    if [ -n "$VITE_POSTHOG_KEY" ]; then \
+      echo "VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY" >> .env.production; \
+    fi && \
+    if [ -n "$VITE_POSTHOG_HOST" ]; then \
+      echo "VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST" >> .env.production; \
+    fi && \
+    if [ -s .env.production ]; then \
+      echo \"Created .env.production with the following contents:\" && cat .env.production; \
     else \
-      echo "Warning: VITE_GCS_API_URL not set - frontend may use default localhost URL"; \
+      echo \"Warning: no Vite env vars set - frontend will use defaults\"; \
     fi
 
-# Build the client (Vite will use VITE_GCS_API_URL from .env.production or env var)
+# Build the client (Vite will use VITE_* values from .env.production or env vars)
 RUN yarn build
 
 # Production stage

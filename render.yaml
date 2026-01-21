@@ -27,4 +27,9 @@ services:
       # Replace 'your-service-name' with your actual Render service name
       - key: VITE_GCS_API_URL
         sync: false  # Set this in Render dashboard before first deploy
+      # PostHog analytics (frontend env vars, used by Vite at build time)
+      - key: VITE_POSTHOG_KEY
+        sync: false  # Set this in Render dashboard to your PostHog project API key
+      - key: VITE_POSTHOG_HOST
+        sync: false  # Set this in Render dashboard to your PostHog project API key
 
