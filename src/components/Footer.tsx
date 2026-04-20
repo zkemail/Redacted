@@ -74,6 +74,7 @@ export default function Footer() {
                     href='https://github.com/zkemail/redacted'
                     target='_blank'
                     rel='noopener noreferrer'
+                    aria-label='Learn more about Redacted on GitHub'
                     className='text-sm text-gray-mid hover:underline'
                 >
                     Learn More
