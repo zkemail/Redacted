@@ -42,3 +42,8 @@ service-account*.json
 .claude/settings.local.json
 .claude/
 thoughts/
+
+# agent skill local installs / circuit cache
+skills/**/node_modules/
+skills/**/.circuits/
+skills/**/package-lock.json

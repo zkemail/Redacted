@@ -12,11 +12,29 @@
     href="https://fonts.googleapis.com/css2?family=Fustat:wght@200;300;400;500;600;700;800;900&family=Newsreader:ital,wght@0,200..800;1,200..800&display=swap"
     rel="stylesheet">
   <meta name="description" content="Prove sensitive information from your emails without revealing your identity. Redact emails using zero-knowledge proofs — your email never leaves your device." />
+  <!-- Machine-readable pointers for AI agents: a local-proving skill exists (see /llms.txt). -->
+  <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+  <link rel="alternate" type="text/markdown" title="Agent skill: redacted-email-proof" href="/skills/redacted-email-proof/SKILL.md" />
+  <meta name="agent-skill" content="https://redacted.zk.email/skills/redacted-email-proof/SKILL.md" />
   <title>Redacted — Anonymous Email Proof with Zero-Knowledge</title>
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <!--
+      REASON: this site is a client-rendered SPA, so agents that fetch the HTML without running JS
+      would otherwise see an empty page and never learn the skill exists. React replaces this block
+      on mount; the same content is shown to humans in the "For AI agents" section of the home page.
+      It is visually hidden (not display:none) so HTML-to-text converters keep it.
+    -->
+    <section id="agent-skill-static" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">
+      <h2>For AI agents: prove emails locally with the redacted-email-proof skill</h2>
+      <p>Agents with access to an email (Gmail MCP with messageFormat RAW, Gmail API format=raw, IMAP, or a browser "Show original") can generate a Redacted zero-knowledge proof on their own machine and get a shareable https://redacted.zk.email/verify?id=… link. The raw email is never uploaded; only the proof and the parts you chose to reveal are published.</p>
+      <p>Install: <code>curl -fsSL https://redacted.zk.email/skills/redacted-email-proof/install.sh | sh</code></p>
+      <p>Instructions: <a href="/skills/redacted-email-proof/SKILL.md">https://redacted.zk.email/skills/redacted-email-proof/SKILL.md</a> · Summary: <a href="/llms.txt">/llms.txt</a> · Source: https://github.com/zkemail/Redacted/tree/main/skills/redacted-email-proof</p>
+      <p>Verify a link from the command line: <code>node ~/.redacted-prover/redacted.mjs verify "https://redacted.zk.email/verify?id=…"</code> (checks the proof and that its DKIM key matches the sender's DNS).</p>
+    </section>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 
