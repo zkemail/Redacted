@@ -605,10 +605,11 @@ async function cmdVerify(ref, opts) {
   const publicInputs = rec.publicInputs.map(String);
   const proof = { publicInputs, proof: Uint8Array.from(rec.proof) };
   const bodyLen = publicInputs.length - 2 - 2048;
-  // 2048-bit DKIM keys are by far the most common today, so try those circuits first.
-  const candidates = CIRCUITS.filter((c) => c.maxBodyLength === bodyLen && (!rec.circuit || rec.circuit === c.name)).sort(
-    (a, b) => b.keyBits - a.keyBits,
-  );
+  // rec.circuit is only a hint (try it first); any shape-matching circuit may verify. After
+  // that, 2048-bit DKIM keys are by far the most common today, so try those first.
+  const shape = CIRCUITS.filter((c) => c.maxBodyLength === bodyLen);
+  const named = shape.filter((c) => rec.circuit === c.name);
+  const candidates = [...named, ...shape.filter((c) => !named.includes(c)).sort((a, b) => b.keyBits - a.keyBits)];
   if (!candidates.length) die(`unknown proof shape (${publicInputs.length} public inputs).`);
   let circuitUsed = null;
   for (const c of candidates) {
