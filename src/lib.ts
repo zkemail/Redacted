@@ -314,7 +314,19 @@ export const handleVerifyProof = async (proof: ProofData, circuitName?: string) 
     console.warn("⚠️ [VERIFY] Circuit not specified or detected. Trying all circuits sequentially...");
     console.warn("⚠️ [VERIFY] For better performance, include circuit metadata in proofs.");
 
-    for (const config of CIRCUIT_CONFIGS) {
+    // Only circuits whose output size matches can verify this proof (2 + header + body public
+    // inputs), and 2048-bit DKIM keys are the common case, so try those first. REASON: proofs
+    // loaded from a verify link carry no circuit metadata, and each wrong-circuit attempt costs
+    // minutes of in-browser work before it fails.
+    const totalInputs = proof.publicInputs?.length ?? 0;
+    const shapeMatches = CIRCUIT_CONFIGS.filter(
+      (c) => 2 + c.maxHeaderLength + c.maxBodyLength === totalInputs
+    );
+    const candidates = (shapeMatches.length ? shapeMatches : CIRCUIT_CONFIGS)
+      .slice()
+      .sort((a, b) => b.keyBits - a.keyBits);
+
+    for (const config of candidates) {
       try {
         console.log(`🔍 [VERIFY] Trying circuit: ${config.name}`);
         const circuit = await loadCircuit(config.name);
