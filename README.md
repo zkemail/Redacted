@@ -26,6 +26,26 @@ Redacted uses **zero-knowledge proofs** combined with **DKIM email signatures** 
 
 The proof mathematically guarantees the email was real and unaltered—without revealing what you've masked.
 
+## For AI agents: prove emails locally from a terminal
+
+An agent that can read someone's email (a Gmail MCP with `messageFormat: "RAW"`, the Gmail API, IMAP, or a browser's "Show original") can produce a Redacted proof without a browser and without uploading the email. The skill lives in [`skills/redacted-email-proof`](skills/redacted-email-proof/SKILL.md) and is also served by the site:
+
+```bash
+curl -fsSL https://redacted.zk.email/skills/redacted-email-proof/install.sh | sh
+R="node ~/.redacted-prover/redacted.mjs"
+$R inspect email.eml                                   # DKIM check + the canonical bytes masks apply to
+$R prove email.eml --only-headers from,subject,date \
+   --hide-body --reveal "Your order has shipped" --dry-run   # preview exactly what becomes public
+$R prove email.eml <same flags> --publish              # prove locally, upload proof only → verify link
+$R verify "https://redacted.zk.email/verify?id=…"       # proof check + DKIM key matches sender DNS
+```
+
+- It uses the same circuits as the site: pinned by commit, and each artifact is checked against its sha256 before use.
+- `publish` sends only `{publicInputs, proof}`. The raw email and the mask arrays are never sent.
+- `verify` also checks that the proof's DKIM public-key hash matches the key published in DNS (or in [archive.zk.email](https://archive.zk.email)) for the revealed `d=`/`s=`. The web verify page doesn't do that check yet.
+- Agents that fetch the site find the skill through `/llms.txt`, a `<link rel="alternate">` to `SKILL.md`, and a static block in `index.html`. Humans see it in the "For AI agents" section on the home page.
+- Install as a Claude Code / agent skill: `npx skills add zkemail/Redacted`, or copy `skills/redacted-email-proof` into your agent's skills directory.
+
 ## How It Works
 
 ```

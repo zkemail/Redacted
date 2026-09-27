@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
 import HomeHeader from '../components/HomeHeader';
 import BeforeAfterSlider from '../components/BeforeAfterSlider';
+import AgentSkillSection from '../components/AgentSkillSection';
 import UnmaskedEmailIllustration from '../assets/unmasked-email-illustration.png';
 import MaskedEmailIllustration from '../assets/masked-email-illustration.png';
 import './Home.css';
@@ -21,7 +22,7 @@ const PageSection = ({
     <div
       className={`
         flex justify-center items-center h-full text-black 
-        basis-[80%] sm:basis-[54%] 
+        basis-[80%] sm:basis-[54%] min-w-0 
         ${solid ? 'border-x border-light' : 'vertical-dashed-lines'}
       `}
     >
@@ -103,6 +104,12 @@ export default function Home() {
           </div>
         </PageSection>
         <Separator />
+        <PageSection height="h-16" />
+        <Separator solid />
+        <PageSection solid>
+          <AgentSkillSection />
+        </PageSection>
+        <Separator solid />
         <PageSection height="h-32" />
         <Separator solid />
         <PageSection solid>

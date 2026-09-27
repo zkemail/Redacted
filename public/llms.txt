@@ -1,0 +1,26 @@
+# Redacted (redacted.zk.email)
+
+> Prove an email is authentic (valid DKIM signature from its sender's domain) while hiding any parts of it, using zero-knowledge proofs. The original email never leaves the prover's device.
+
+## For AI agents
+
+There is an installable agent skill, **redacted-email-proof**, that runs the whole flow locally from a terminal. It uses the same Noir circuits and Barretenberg prover as this website.
+
+- Instructions (SKILL.md): https://redacted.zk.email/skills/redacted-email-proof/SKILL.md
+- One-line install (Node 20+): `curl -fsSL https://redacted.zk.email/skills/redacted-email-proof/install.sh | sh`
+- Source: https://github.com/zkemail/Redacted/tree/main/skills/redacted-email-proof
+
+Flow:
+1. Get the raw email. Gmail MCP: call `get_message` with `messageFormat: "RAW"`. Gmail API: `format=raw`. Browser: Gmail "Show original" → "Download original".
+2. `node ~/.redacted-prover/redacted.mjs inspect email.eml` checks DKIM and shows the signed, canonical content.
+3. `... prove email.eml --dry-run [--only-headers from,subject,date] [--hide-body --reveal "text"] [--hide "secret"]` previews exactly what becomes public. Confirm it with the user.
+4. `... prove email.eml <same flags> --publish` proves locally (1–4 min, ~4 GB RAM) and uploads only the proof and its public outputs. It prints `https://redacted.zk.email/verify?id=<uuid>`.
+5. `... verify <verify-url>` checks a proof locally and checks that its DKIM key hash matches the sender's DNS key (or archive.zk.email).
+
+Privacy: the .eml is never sent anywhere. The published proof contains only the bytes you left unmasked. By default the values of to/cc/bcc/reply-to/list-post/list-unsubscribe are hidden, along with DKIM bh=.
+
+## For humans
+
+- Prove an email in the browser: https://redacted.zk.email/generate-proof
+- Verify a proof: open its https://redacted.zk.email/verify?id=… link and press "Verify Proof".
+- Code: https://github.com/zkemail/Redacted
