@@ -1,36 +1,22 @@
 {
   "circuits": [
-    {
-      "name": "email_mask_1024_small",
-      "outputFile": "email_mask_1024_small.json",
-      "maxHeaderLength": 2048,
-      "maxBodyLength": 4096,
-      "keyBits": 1024
-    },
-    {
-      "name": "email_mask_1024_mid",
-      "outputFile": "email_mask_1024_mid.json",
-      "maxHeaderLength": 2048,
-      "maxBodyLength": 8448,
-      "keyBits": 1024
-    },
-    {
-      "name": "email_mask_2048_small",
-      "outputFile": "email_mask_2048_small.json",
-      "maxHeaderLength": 2048,
-      "maxBodyLength": 4096,
-      "keyBits": 2048
-    },
-    {
-      "name": "email_mask_2048_mid",
-      "outputFile": "email_mask_2048_mid.json",
-      "maxHeaderLength": 2048,
-      "maxBodyLength": 8448,
-      "keyBits": 2048
-    }
+    { "name": "email_mask_1024_small", "outputFile": "email_mask_1024_small.json", "maxHeaderLength": 2048, "maxBodyLength": 4096, "keyBits": 1024, "browser": true },
+    { "name": "email_mask_1024_mid", "outputFile": "email_mask_1024_mid.json", "maxHeaderLength": 2048, "maxBodyLength": 8448, "keyBits": 1024, "browser": true },
+    { "name": "email_mask_1024_large", "outputFile": "email_mask_1024_large.json", "maxHeaderLength": 4096, "maxBodyLength": 49152, "keyBits": 1024, "browser": false },
+    { "name": "email_mask_2048_small", "outputFile": "email_mask_2048_small.json", "maxHeaderLength": 2048, "maxBodyLength": 4096, "keyBits": 2048, "browser": true },
+    { "name": "email_mask_2048_mid", "outputFile": "email_mask_2048_mid.json", "maxHeaderLength": 2048, "maxBodyLength": 8448, "keyBits": 2048, "browser": true },
+    { "name": "email_mask_2048_large", "outputFile": "email_mask_2048_large.json", "maxHeaderLength": 4096, "maxBodyLength": 49152, "keyBits": 2048, "browser": false }
+  ],
+  "legacy": [
+    { "name": "email_mask_1024_small", "outputFile": "email_mask_1024_small.json", "maxHeaderLength": 2048, "maxBodyLength": 4096, "keyBits": 1024 },
+    { "name": "email_mask_1024_mid", "outputFile": "email_mask_1024_mid.json", "maxHeaderLength": 2048, "maxBodyLength": 8448, "keyBits": 1024 },
+    { "name": "email_mask_2048_small", "outputFile": "email_mask_2048_small.json", "maxHeaderLength": 2048, "maxBodyLength": 4096, "keyBits": 2048 },
+    { "name": "email_mask_2048_mid", "outputFile": "email_mask_2048_mid.json", "maxHeaderLength": 2048, "maxBodyLength": 8448, "keyBits": 2048 }
   ],
   "versions": {
-    "nargo": "1.0.0-beta.5",
-    "barretenberg": "0.84.0"
+    "circuitVersion": 2,
+    "nargo": "1.0.0-rc.3",
+    "barretenberg": "5.0.0",
+    "legacy": { "circuitVersion": 1, "nargo": "1.0.0-beta.5", "barretenberg": "0.84.0" }
   }
 }
