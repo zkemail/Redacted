@@ -21,8 +21,14 @@ global KEY_LIMBS: u32 = KEY_LIMBS_1024;
  * @param header_mask - The mask for the header
  * @param body_mask - The mask for the body
  * @return -
- *         0: Pedersen hash of DKIM public key (root of trust)
- *         1: Pedersen hash of DKIM signature (email nullifier)
+ *         0: Poseidon hash of the DKIM RSA modulus (root of trust; compare to the DNS key)
+ *         1: Poseidon hash of the DKIM RSA reduction parameter (redc)
+ *         2: Pedersen hash of DKIM signature (email nullifier)
+ *         then the masked header bytes, then the masked body bytes
+ *
+ * REASON (outputs 0 and 1): zkemail.nr v2 binds redc into the key hash. Before that fix the 2048-bit
+ * hash covered only the modulus, so a prover could pick an arbitrary redc and still match the real
+ * key hash (Veridise finding; zkemail.nr PR #62). Verifiers must check BOTH hashes.
  */
 fn main(
     header: BoundedVec<u8, MAX_EMAIL_HEADER_LENGTH>,
@@ -33,7 +39,7 @@ fn main(
     dkim_header_sequence: Sequence,
     header_mask: [bool; MAX_EMAIL_HEADER_LENGTH],
     body_mask: [bool; MAX_EMAIL_BODY_LENGTH],
-) -> pub ([Field; 2], [u8; MAX_EMAIL_HEADER_LENGTH], [u8; MAX_EMAIL_BODY_LENGTH]) {
+) -> pub ([Field; 3], [u8; MAX_EMAIL_HEADER_LENGTH], [u8; MAX_EMAIL_BODY_LENGTH]) {
 
     // verify the dkim signature over the header
     pubkey.verify_dkim_signature(header, signature);
@@ -42,7 +48,7 @@ fn main(
     let signed_body_hash = get_body_hash(header, dkim_header_sequence, body_hash_index);
 
     // hash the asserted body
-    let computed_body_hash: [u8; 32] = sha256_var(body.storage(), body.len() as u64);
+    let computed_body_hash: [u8; 32] = sha256_var(body.storage(), body.len());
 
     // compare the body hashes
     assert(
@@ -56,6 +62,7 @@ fn main(
 
     // hash the pubkey and signature for the standard outputs
     let email_nullifier = pedersen_hash(signature);
-    let standard_out = [pubkey.hash(), email_nullifier];
+    let pubkey_hash = pubkey.hash();
+    let standard_out = [pubkey_hash[0], pubkey_hash[1], email_nullifier];
     (standard_out, masked_header, masked_body)
 }

@@ -1,0 +1,13 @@
+[package]
+name = "zkemail"
+type = "lib"
+authors = ["Mach 34"]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+bignum = { tag = "v0.10.0-2", git = "https://github.com/zkpassport/noir-bignum" }
+rsa = { tag = "v0.12.0", git = "https://github.com/zkpassport/noir_rsa" }
+base64 = { path = "../noir_base64" }
+nodash = { tag = "v0.45.0", git = "https://github.com/olehmisar/nodash" }
+sha256 = { path = "../sha256" }
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }
