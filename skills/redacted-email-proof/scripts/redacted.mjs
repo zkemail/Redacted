@@ -33,7 +33,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v2 = Noir 1.0.0-rc.3 + Barretenberg 5.0.0 + zkemail.nr v2 (redc bound into the key hash).
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade:
 // their 2048-bit key hash does not bind redc (zkemail.nr PR #62), so they are reported as legacy.
-const CIRCUIT_REF = "2d2702157308e3359f58c8a16f47529f2a115bd7";
+const CIRCUIT_REF = "d2bb9ca2f45b5df9d4114e9d92f992f67a61d0d8";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
