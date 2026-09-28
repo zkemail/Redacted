@@ -1,5 +1,5 @@
 import "./polyfills";
-import { UltraHonkBackend, type ProofData } from "@aztec/bb.js";
+import { Barretenberg, UltraHonkBackend, UltraHonkVerifierBackend, type ProofData } from "@aztec/bb.js";
 import { Noir, type CompiledCircuit } from "@noir-lang/noir_js";
 import initNoirC from "@noir-lang/noirc_abi";
 import initACVM from "@noir-lang/acvm_js";
@@ -8,159 +8,200 @@ import noirc from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 import {
   generateEmailVerifierInputsFromDKIMResult
 } from "@zk-email/zkemail-nr";
+import { bnToLimbStrArray } from "@mach-34/noir-bignum-paramgen";
+import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
 
-// Circuit cache for lazy loading
+/**
+ * Circuit versions
+ *
+ * v2 (current): Noir 1.0.0-rc.3 + Barretenberg 5.0.0 + zkemail.nr v2. Public inputs are
+ *   [modulus hash, redc hash, nullifier, ...header bytes, ...body bytes]. Verified against
+ *   verification keys generated at build time (src/circuit/target/vk).
+ * v1 (legacy): Noir beta.5 + bb.js 0.84. Public inputs are [key hash, nullifier, ...]. Kept only
+ *   so links created before the upgrade still verify. Its 2048-bit key hash does not bind the RSA
+ *   reduction parameter (zkemail.nr PR #62), so the verify page labels those proofs as legacy.
+ *
+ * The public-input count differs between every v1 and v2 tier, so the version is derived from
+ * the proof's shape. It never needs to be trusted from metadata.
+ */
+export type CircuitVersion = 1 | 2;
+
+interface CircuitConfig {
+  name: string;
+  version: CircuitVersion;
+  maxHeaderLength: number;
+  maxBodyLength: number;
+  keyBits: number;
+  /** false = too large to prove in a browser; prove it with the agent CLI instead */
+  browser: boolean;
+}
+
+const V2_CIRCUITS: CircuitConfig[] = circuitConfigs.circuits.map((c) => ({
+  name: c.name,
+  version: 2,
+  maxHeaderLength: c.maxHeaderLength,
+  maxBodyLength: c.maxBodyLength,
+  keyBits: c.keyBits,
+  browser: c.browser,
+}));
+const V1_CIRCUITS: CircuitConfig[] = circuitConfigs.legacy.map((c) => ({
+  name: c.name,
+  version: 1,
+  maxHeaderLength: c.maxHeaderLength,
+  maxBodyLength: c.maxBodyLength,
+  keyBits: c.keyBits,
+  browser: false,
+}));
+
+const prefixLength = (version: CircuitVersion) => (version === 2 ? 3 : 2);
+const publicInputCount = (c: CircuitConfig) =>
+  prefixLength(c.version) + c.maxHeaderLength + c.maxBodyLength;
+
+// Browser-provable v2 circuits. Vite code-splits each JSON, so only the selected one downloads.
+// NOTE: the large tier is intentionally absent. Proving its 2^22-gate circuit needs ~7 GB,
+// beyond a browser's 4 GB WebAssembly memory. Those emails are proved with the CLI
+// (skills/redacted-email-proof) and verified here from the VK alone.
+const V2_LOADERS: Record<string, () => Promise<unknown>> = {
+  email_mask_1024_small: () => import("./circuit/target/email_mask_1024_small.json"),
+  email_mask_1024_mid: () => import("./circuit/target/email_mask_1024_mid.json"),
+  email_mask_2048_small: () => import("./circuit/target/email_mask_2048_small.json"),
+  email_mask_2048_mid: () => import("./circuit/target/email_mask_2048_mid.json"),
+};
+const V1_LOADERS: Record<string, () => Promise<unknown>> = {
+  email_mask_1024_small: () => import("./circuit/legacy-v1/email_mask_1024_small.json"),
+  email_mask_1024_mid: () => import("./circuit/legacy-v1/email_mask_1024_mid.json"),
+  email_mask_2048_small: () => import("./circuit/legacy-v1/email_mask_2048_small.json"),
+  email_mask_2048_mid: () => import("./circuit/legacy-v1/email_mask_2048_mid.json"),
+};
+// Verification keys are tiny (~4 KB) and cover every v2 tier, including large.
+const V2_VK_URLS = import.meta.glob("./circuit/target/vk/*.vk", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
 const circuitCache = new Map<string, CompiledCircuit>();
 
-/**
- * Dynamically load a circuit by name with caching
- *
- * @param circuitName - The circuit name (e.g., "email_mask_1024_small")
- * @returns The compiled circuit
- */
-async function loadCircuit(circuitName: string): Promise<CompiledCircuit> {
-  // Return cached circuit if available
-  const cached = circuitCache.get(circuitName);
-  if (cached) {
-    console.log(`📦 [CIRCUIT] Using cached circuit: ${circuitName}`);
-    return cached;
-  }
-
-  console.log(`📦 [CIRCUIT] Loading circuit: ${circuitName}`);
-
-  // Dynamic import based on circuit name
+async function loadCircuit(c: CircuitConfig): Promise<CompiledCircuit> {
+  const key = `v${c.version}:${c.name}`;
+  const cached = circuitCache.get(key);
+  if (cached) return cached;
+  const loader = (c.version === 2 ? V2_LOADERS : V1_LOADERS)[c.name];
+  if (!loader) throw new Error(`Circuit ${c.name} (v${c.version}) cannot be loaded in the browser`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let module: any;
-  switch (circuitName) {
-    case "email_mask_1024_small":
-      module = await import("./circuit/target/email_mask_1024_small.json");
-      break;
-    case "email_mask_1024_mid":
-      module = await import("./circuit/target/email_mask_1024_mid.json");
-      break;
-    case "email_mask_2048_small":
-      module = await import("./circuit/target/email_mask_2048_small.json");
-      break;
-    case "email_mask_2048_mid":
-      module = await import("./circuit/target/email_mask_2048_mid.json");
-      break;
-    default:
-      throw new Error(`Unknown circuit: ${circuitName}`);
-  }
-
+  const module: any = await loader();
   const circuit = (module.default ?? module) as CompiledCircuit;
-  circuitCache.set(circuitName, circuit);
-  console.log(`📦 [CIRCUIT] Cached circuit: ${circuitName}`);
-
+  circuitCache.set(key, circuit);
   return circuit;
+}
+
+async function loadVk(c: CircuitConfig): Promise<Uint8Array> {
+  const url = V2_VK_URLS[`./circuit/target/vk/${c.name}.vk`];
+  if (!url) throw new Error(`No verification key bundled for ${c.name}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load verification key for ${c.name}: ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 /**
  * Clear the circuit cache to free memory
- * Call this when you need to reduce memory footprint
  */
 export function clearCircuitCache(): void {
-  const size = circuitCache.size;
   circuitCache.clear();
-  console.log(`📦 [CIRCUIT] Cleared ${size} cached circuit(s)`);
 }
-
-// Circuit configurations (without loaded circuit data)
-interface CircuitConfig {
-  name: string;
-  maxHeaderLength: number;
-  maxBodyLength: number;
-  keyBits: number;
-}
-
-const CIRCUIT_CONFIGS: CircuitConfig[] = circuitConfigs.circuits.map((config) => ({
-  name: config.name,
-  maxHeaderLength: config.maxHeaderLength,
-  maxBodyLength: config.maxBodyLength,
-  keyBits: config.keyBits,
-}));
 
 // Initialize WASM modules
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
 
-/**
- * Extended ProofData type that includes circuit metadata
- */
-interface ProofDataWithMetadata extends ProofData {
-  __circuitName?: string;
-  __maxHeaderLength?: number;
-  __maxBodyLength?: number;
+// CRS (SRS) points a Barretenberg instance loads. Proving needs at least the circuit's dyadic
+// size: 2^19 for small (≈505k gates), 2^20 for mid (≈818k gates). Verifying from a VK needs
+// almost none, but bb.js 5 downloads the compressed CRS in 2^17-point (4 MB) chunks and rejects
+// any other size ("compressed points_buf size … must be a positive multiple of 4194304").
+const PROVE_SRS_POINTS = 2 ** 20;
+const VERIFY_SRS_POINTS = 2 ** 17;
+
+// REASON: bb.js 5 caches the CRS in IndexedDB under "g1Data" and passes the cached buffer
+// straight to wasm whenever it holds AT LEAST the requested points. With MORE points cached, wasm
+// rejects it ("SrsInitSrs: invalid points_buf size. Expected 32 or 64 bytes per point, got 128")
+// and every proof fails verification. The cache can be larger because:
+//   - legacy bb.js 0.84 (old site versions, and the legacy-link verifier) writes the same key, or
+//   - an earlier bb.js 5 instance loaded a bigger CRS.
+// Requesting max(needed, cached) never mismatches and never re-downloads what is already cached.
+// Tried: truncating the cache entry. Legacy code rewrites it, so prove/verify kept re-downloading.
+async function srsPointsFor(minPoints: number): Promise<number> {
+  try {
+    const cached = await idbGet("g1Data");
+    if (cached instanceof Uint8Array && cached.length % 64 === 0) {
+      return Math.max(minPoints, cached.length / 64);
+    }
+  } catch {
+    // IndexedDB unavailable (private mode): bb.js will just download
+  }
+  return minPoints;
 }
 
-/**
- * Select and load the appropriate circuit based on DKIM key size and body mask length
- *
- * @param keyBits - The DKIM RSA key size in bits (1024 or 2048)
- * @param headerMaskLength - Length of the header mask array (for logging only)
- * @param bodyMaskLength - Length of the body mask array
- * @returns The circuit configuration with loaded circuit data
- * @throws Error if no circuit supports the given key size
- */
-async function selectCircuit(
-  keyBits: number,
-  headerMaskLength: number,
-  bodyMaskLength: number
-): Promise<CircuitConfig & { circuit: CompiledCircuit }> {
-  // Filter circuits by key size
-  const keyMatchingCircuits = CIRCUIT_CONFIGS.filter(config => config.keyBits === keyBits);
+// Barretenberg instances by purpose. Creating one downloads the wasm and spins up workers.
+// Multi-threading needs cross-origin isolation (COOP/COEP headers) for SharedArrayBuffer.
+const bbInstances = new Map<string, Promise<Barretenberg>>();
+function getBarretenberg(purpose: "prove" | "verify"): Promise<Barretenberg> {
+  let instance = bbInstances.get(purpose);
+  if (!instance) {
+    instance = srsPointsFor(purpose === "prove" ? PROVE_SRS_POINTS : VERIFY_SRS_POINTS).then((srsSize) =>
+      Barretenberg.new({
+        threads: self.crossOriginIsolated ? navigator.hardwareConcurrency || 4 : 1,
+        srsSize,
+      })
+    );
+    instance.catch(() => bbInstances.delete(purpose));
+    bbInstances.set(purpose, instance);
+  }
+  return instance;
+}
 
-  if (keyMatchingCircuits.length === 0) {
+export const CLI_URL = "https://redacted.zk.email/skills/redacted-email-proof/SKILL.md";
+
+/**
+ * Pick the smallest browser-provable v2 circuit for this email.
+ */
+function selectCircuit(keyBits: number, headerLength: number, bodyLength: number): CircuitConfig {
+  const forKey = V2_CIRCUITS.filter((c) => c.keyBits === keyBits);
+  if (forKey.length === 0) {
     throw new Error(
       `Unsupported DKIM key size: ${keyBits} bits. ` +
-      `This application only supports ${[...new Set(CIRCUIT_CONFIGS.map(c => c.keyBits))].join(' and ')}-bit RSA keys. ` +
+      `This application only supports ${[...new Set(V2_CIRCUITS.map((c) => c.keyBits))].join(" and ")}-bit RSA keys. ` +
       `The email you're trying to verify was signed with a ${keyBits}-bit key.`
     );
   }
-
-  // Find the smallest circuit that can accommodate the body mask length
-  let selectedConfig: CircuitConfig | null = null;
-
-  for (const config of keyMatchingCircuits) {
-    if (bodyMaskLength <= config.maxBodyLength) {
-      selectedConfig = config;
-      break;
-    }
+  const fit = forKey.find((c) => headerLength <= c.maxHeaderLength && bodyLength <= c.maxBodyLength);
+  if (!fit) {
+    const largest = forKey[forKey.length - 1];
+    throw new Error(
+      `Email too long: the signed header is ${headerLength} bytes and the body ${bodyLength} bytes. ` +
+      `The largest circuit supports ${largest.maxHeaderLength} / ${largest.maxBodyLength} bytes.`
+    );
   }
-
-  // If no circuit can accommodate, use the largest one for this key size
-  if (!selectedConfig) {
-    selectedConfig = keyMatchingCircuits[keyMatchingCircuits.length - 1];
-    console.warn(`⚠️ [CIRCUIT] Body mask size (${bodyMaskLength}) exceeds all circuit limits for ${keyBits}-bit keys. Using largest circuit: ${selectedConfig.name}`);
-  } else {
-    console.log(`📦 [CIRCUIT] Selected ${selectedConfig.name} (key: ${keyBits}-bit, header: ${headerMaskLength}/${selectedConfig.maxHeaderLength}, body: ${bodyMaskLength}/${selectedConfig.maxBodyLength})`);
+  if (!fit.browser) {
+    throw new Error(
+      `Email too long to prove in the browser (${bodyLength}-byte body; the browser limit is ` +
+      `${Math.max(...forKey.filter((c) => c.browser).map((c) => c.maxBodyLength))} bytes). ` +
+      `Emails with bodies up to ${fit.maxBodyLength} bytes can be proved locally with the command-line prover: ${CLI_URL}`
+    );
   }
-
-  // Load the circuit (from cache or dynamically)
-  const circuit = await loadCircuit(selectedConfig.name);
-
-  return {
-    ...selectedConfig,
-    circuit,
-  };
+  return fit;
 }
 
 /**
  * Generate a zero-knowledge proof for email verification
  *
  * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (0 = mask/hide, 1 = reveal)
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (0 = mask/hide, 1 = reveal)
- * @param existingDkimResult - Optional pre-verified DKIM result to avoid double verification (Phase 2 optimization)
- * @returns ProofData containing the proof and public inputs, or null if generation failed
+ * @param headerMask - 0/1 per header byte (0 = hide, 1 = reveal)
+ * @param bodyMask - 0/1 per body byte (0 = hide, 1 = reveal)
+ * @param existingDkimResult - Optional pre-verified DKIM result to avoid double verification
  *
- * IMPORTANT: The returned proof does NOT contain the original email.
- * - The proof.proof field contains cryptographic proof bytes (not the email)
- * - The proof.publicInputs contains masked header/body (characters at masked positions are replaced with null bytes)
- * - The original email cannot be recovered from the proof - this is by design (zero-knowledge property)
- *
- * To access the original email, you must store it separately (e.g., the 'email' parameter passed to this function)
+ * IMPORTANT: The returned proof does NOT contain the original email. Its public inputs carry only
+ * the masked header/body (hidden bytes are 0x00).
  */
 export const handleGenerateProof = async (
   email: string,
@@ -168,403 +209,196 @@ export const handleGenerateProof = async (
   bodyMask: number[],
   existingDkimResult?: DKIMResult
 ) => {
-  try {
-    console.log("headerMask", headerMask);
-    console.log("bodyMask", bodyMask);
-    console.log("headerMask.length", headerMask.length);
-    console.log("bodyMask.length", bodyMask.length);
-
-    // Get DKIM result to detect key size
-    let dkimResult = existingDkimResult;
-    if (!dkimResult) {
-      // We need to run DKIM verification to get the key size
-      // Import dynamically to avoid circular dependency issues
-      const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
-      dkimResult = await verifyDKIMSignature(email);
-    }
-
-    // Detect key size from DKIM result
-    const keyBits = dkimResult.modulusLength;
-    console.log(`🔑 [DKIM] Detected ${keyBits}-bit RSA key`);
-
-    // Select and load circuit based on key size and body mask length
-    const circuitConfig = await selectCircuit(keyBits, headerMask.length, bodyMask.length);
-    const selectedCircuit = circuitConfig.circuit;
-
-    const noir = new Noir(selectedCircuit);
-
-    // Configure multi-threading for proof generation
-    // Requires cross-origin isolation (COOP/COEP headers) for SharedArrayBuffer
-    const threads = self.crossOriginIsolated
-      ? (navigator.hardwareConcurrency || 4)
-      : 1;
-    console.log(`[THREADS] Cross-origin isolated: ${self.crossOriginIsolated}, using ${threads} thread(s)`);
-
-    // const backend = new 
-    
-    const backend = new UltraHonkBackend(selectedCircuit.bytecode, {
-      threads
-    });
-
-    const inputParams = {
-      maxHeadersLength: circuitConfig.maxHeaderLength,
-      maxBodyLength: circuitConfig.maxBodyLength,
-    };
-
-    // Pad arrays with 1s (reveal) if shorter than required lengths, or slice if longer
-    // Padding bytes should be revealed (kept), not hidden
-    const paddedHeaderMask = headerMask.length < circuitConfig.maxHeaderLength
-      ? [...headerMask, ...new Array(circuitConfig.maxHeaderLength - headerMask.length).fill(1)]
-      : headerMask.slice(0, circuitConfig.maxHeaderLength);
-    const paddedBodyMask = bodyMask.length < circuitConfig.maxBodyLength
-      ? [...bodyMask, ...new Array(circuitConfig.maxBodyLength - bodyMask.length).fill(1)]
-      : bodyMask.slice(0, circuitConfig.maxBodyLength);
-
-    // Generate circuit inputs from DKIM result (reusing the result we already have)
-    console.log("[PROOF] Using DKIM result for input generation");
-    const inputs = await generateEmailVerifierInputsFromDKIMResult(dkimResult, {
-      headerMask: paddedHeaderMask,
-      bodyMask: paddedBodyMask,
-      ...inputParams,
-    });
-
-    // generate witness
-    const { witness } = await noir.execute(inputs);
-
-    console.time("generateProof");
-    const proof = await backend.generateProof(witness);
-    console.timeEnd("generateProof");
-
-    // Store circuit metadata in proof for verification
-    const proofWithMetadata = proof as ProofDataWithMetadata;
-    proofWithMetadata.__circuitName = circuitConfig.name;
-    proofWithMetadata.__maxHeaderLength = circuitConfig.maxHeaderLength;
-    proofWithMetadata.__maxBodyLength = circuitConfig.maxBodyLength;
-
-    return proof;
-  } catch (e) {
-    console.error(e);
-    throw e; // Re-throw to let caller handle specific error messages
+  let dkimResult = existingDkimResult;
+  if (!dkimResult) {
+    const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
+    dkimResult = await verifyDKIMSignature(email);
   }
+
+  const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);
+  const circuit = await loadCircuit(config);
+
+  // Pad masks with 1s (reveal) up to the circuit size: padding bytes are zeros anyway.
+  const pad = (mask: number[], n: number) =>
+    mask.length < n ? [...mask, ...new Array(n - mask.length).fill(1)] : mask.slice(0, n);
+  const inputs = await generateEmailVerifierInputsFromDKIMResult(dkimResult, {
+    headerMask: pad(headerMask, config.maxHeaderLength),
+    bodyMask: pad(bodyMask, config.maxBodyLength),
+    maxHeadersLength: config.maxHeaderLength,
+    maxBodyLength: config.maxBodyLength,
+  });
+
+  // REASON: the v2 circuits use noir-bignum >= v0.9, whose Barrett parameter is
+  // floor(2^(2k + 6) / n). zkemail-nr 2.0.0 still derives redc with 2^(2k + 4) (via
+  // @mach-34/noir-bignum-paramgen), which makes witness generation fail inside the RSA check.
+  // Keep in sync with redcLimbsV2 in skills/redacted-email-proof/scripts/redacted.mjs.
+  const keyBits = BigInt(dkimResult.modulusLength);
+  inputs.pubkey.redc = bnToLimbStrArray((1n << (2n * keyBits + 6n)) / dkimResult.publicKey);
+
+  const { witness } = await new Noir(circuit).execute(inputs);
+
+  console.time("generateProof");
+  const api = await getBarretenberg("prove");
+  const proof = await new UltraHonkBackend(circuit.bytecode, api).generateProof(witness);
+  console.timeEnd("generateProof");
+
+  return withCircuitMetadata(proof, config);
 };
 
 /**
- * Verify a zero-knowledge proof
- *
- * @param proof - The ProofData object to verify
- * @param circuitName - Optional circuit name to use for verification. If not provided, will try to detect from proof metadata or try all circuits
- * @returns true if proof is valid, false otherwise
+ * ProofData plus the circuit it was made with. The metadata is only a hint for faster
+ * verification; verification re-derives candidates from the public-input count.
  */
-export const handleVerifyProof = async (proof: ProofData, circuitName?: string) => {
-  try {
-    console.log("🔍 [VERIFY] Starting proof verification");
-    console.log("🔍 [VERIFY] publicInputs count:", proof.publicInputs?.length);
-    const firstInputType = typeof (proof.publicInputs?.[0] as unknown);
-    console.log("🔍 [VERIFY] First publicInput type:", firstInputType);
+export interface ProofWithCircuit extends ProofData {
+  circuit?: string;
+  circuitVersion?: CircuitVersion;
+}
 
-    if (proof.publicInputs && proof.publicInputs.length > 0) {
-      const firstInput = proof.publicInputs[0] as unknown;
-      if (typeof firstInput === 'string') {
-        console.log("✅ [VERIFY] First publicInput is string (correct format):", firstInput.substring(0, 50));
-      } else if (firstInput instanceof Uint8Array) {
-        console.error("❌ [VERIFY] First publicInput is Uint8Array (WRONG! Should be string)");
-        console.error("❌ [VERIFY] This will cause the library to fail - it expects strings!");
-      } else {
-        console.error("❌ [VERIFY] First publicInput is unexpected type:", typeof firstInput, firstInput);
-      }
-    }
-
-    // Determine which circuit to use for verification
-    let detectedCircuitName: string | null = null;
-
-    if (circuitName) {
-      // Use specified circuit
-      const config = CIRCUIT_CONFIGS.find(c => c.name === circuitName);
-      if (config) {
-        detectedCircuitName = circuitName;
-        console.log(`🔍 [VERIFY] Using specified circuit: ${circuitName}`);
-      } else {
-        console.warn(`⚠️ [VERIFY] Circuit name "${circuitName}" not found, trying to detect...`);
-      }
-    }
-
-    if (!detectedCircuitName) {
-      // Try to detect from proof metadata
-      const proofWithMeta = proof as ProofDataWithMetadata;
-      if (proofWithMeta.__circuitName) {
-        const config = CIRCUIT_CONFIGS.find(c => c.name === proofWithMeta.__circuitName);
-        if (config) {
-          detectedCircuitName = proofWithMeta.__circuitName;
-          console.log(`🔍 [VERIFY] Detected circuit from metadata: ${detectedCircuitName}`);
-        }
-      }
-    }
-
-    // If we have a specific circuit, load and verify with it
-    if (detectedCircuitName) {
-      const circuitToUse = await loadCircuit(detectedCircuitName);
-      const backend = new UltraHonkBackend(circuitToUse.bytecode);
-      console.log("🔍 [VERIFY] Calling backend.verifyProof()...");
-      const isValid = await backend.verifyProof(proof);
-      console.log("✅ [VERIFY] Verification result:", isValid);
-      return isValid;
-    }
-
-    // Fallback: try all circuits sequentially (lazy loading each)
-    console.warn("⚠️ [VERIFY] Circuit not specified or detected. Trying all circuits sequentially...");
-    console.warn("⚠️ [VERIFY] For better performance, include circuit metadata in proofs.");
-
-    // Only circuits whose output size matches can verify this proof (2 + header + body public
-    // inputs), and 2048-bit DKIM keys are the common case, so try those first. REASON: proofs
-    // loaded from a verify link carry no circuit metadata, and each wrong-circuit attempt costs
-    // minutes of in-browser work before it fails.
-    const totalInputs = proof.publicInputs?.length ?? 0;
-    const shapeMatches = CIRCUIT_CONFIGS.filter(
-      (c) => 2 + c.maxHeaderLength + c.maxBodyLength === totalInputs
-    );
-    const candidates = (shapeMatches.length ? shapeMatches : CIRCUIT_CONFIGS)
-      .slice()
-      .sort((a, b) => b.keyBits - a.keyBits);
-
-    for (const config of candidates) {
-      try {
-        console.log(`🔍 [VERIFY] Trying circuit: ${config.name}`);
-        const circuit = await loadCircuit(config.name);
-        const backend = new UltraHonkBackend(circuit.bytecode);
-        const isValid = await backend.verifyProof(proof);
-        if (isValid) {
-          console.log(`✅ [VERIFY] Verification successful with circuit: ${config.name}`);
-          return true;
-        }
-      } catch {
-        // Try next circuit
-        continue;
-      }
-    }
-
-    console.error("❌ [VERIFY] Proof verification failed with all circuits");
-    return false;
-  } catch (e) {
-    console.error("❌ [VERIFY] Error:", e);
-    if (e instanceof Error) {
-      console.error("❌ [VERIFY] Error message:", e.message);
-      if (e.message.includes(',')) {
-        console.error("❌ [VERIFY] ERROR CONTAINS COMMA-SEPARATED STRING - This suggests a Uint8Array was converted to string!");
-      }
-    }
-    return false;
-  }
-};
-
-/**
- * Generate proof and extract masked email in one call
- *
- * @param email - The original email content (EML format)
- * @param headerMask - Array of 0s and 1s indicating which header bytes to mask (0 = mask/hide, 1 = reveal)
- * @param bodyMask - Array of 0s and 1s indicating which body bytes to mask (0 = mask/hide, 1 = reveal)
- * @returns Object containing both the proof and the masked email data, or null if generation failed
- */
-export async function generateProofWithMaskedEmail(
-  email: string,
-  headerMask: number[],
-  bodyMask: number[]
-): Promise<{
-  proof: ProofData;
-  maskedHeader: string;
-  maskedBody: string;
-  publicKeyHash: Uint8Array;
-  emailNullifier: Uint8Array;
-} | null> {
-  const proof = await handleGenerateProof(email, headerMask, bodyMask);
-  if (!proof) return null;
-
-  const maskedData = extractMaskedDataFromProof(proof);
-  if (!maskedData) return null;
-
-  return {
-    proof,
-    ...maskedData,
-  };
+function withCircuitMetadata(proof: ProofData, c: CircuitConfig): ProofWithCircuit {
+  return Object.assign(proof, { circuit: c.name, circuitVersion: c.version });
 }
 
 /**
- * Extract masked header and body from proof public inputs
- *
- * IMPORTANT: This returns the MASKED versions, NOT the original email.
- * The original email cannot be recovered from the proof - that's the whole
- * point of zero-knowledge proofs. The masked data has characters at masked
- * positions replaced (typically with 0 or placeholder values).
- *
- * Noir circuit output structure:
- * - publicInputs[0]: Public key hash (32-byte field element as hex string)
- * - publicInputs[1]: Email nullifier (32-byte field element as hex string)
- * - publicInputs[2..2+maxHeaderLength-1]: Each byte of masked header (one field per byte)
- * - publicInputs[2+maxHeaderLength..]: Each byte of masked body (one field per byte)
- *
- * Each byte is stored as a 32-byte padded hex string, e.g., "0x0000...0061" = 'a' (0x61)
- *
- * @param proof The ProofData object from handleGenerateProof
- * @returns Object containing masked header and body as strings, or null if structure is unexpected
+ * Which circuits could have produced a proof with this many public inputs, most likely first.
  */
-export function extractMaskedDataFromProof(proof: ProofData): {
+function candidateCircuits(proof: ProofWithCircuit): CircuitConfig[] {
+  const n = proof.publicInputs?.length ?? 0;
+  const shape = [...V2_CIRCUITS, ...V1_CIRCUITS].filter((c) => publicInputCount(c) === n);
+  const named = shape.filter((c) => c.name === proof.circuit && (!proof.circuitVersion || c.version === proof.circuitVersion));
+  // 2048-bit DKIM keys are by far the most common, so try those first.
+  return [...named, ...shape.filter((c) => !named.includes(c)).sort((a, b) => b.keyBits - a.keyBits)];
+}
+
+export interface VerificationResult {
+  valid: boolean;
+  circuit?: string;
+  version?: CircuitVersion;
+  keyBits?: number;
+  /** v1 2048-bit proofs: the key hash does not bind redc, so a forged proof cannot be ruled out */
+  legacyRedcUnbound?: boolean;
+}
+
+async function verifyWith(c: CircuitConfig, proof: ProofData): Promise<boolean> {
+  if (c.version === 2) {
+    // VK-only verification: milliseconds, and works for tiers the browser can't prove.
+    const api = await getBarretenberg("verify");
+    return new UltraHonkVerifierBackend(api).verifyProof({ ...proof, verificationKey: await loadVk(c) });
+  }
+  // Legacy links only: bb.js 0.84 (npm alias "bb-legacy") has to rebuild the VK from bytecode.
+  const legacy = await import("bb-legacy");
+  const backend = new legacy.UltraHonkBackend((await loadCircuit(c)).bytecode);
+  try {
+    return await backend.verifyProof(proof);
+  } finally {
+    await backend.destroy();
+  }
+}
+
+/**
+ * Verify a zero-knowledge proof against every circuit whose output shape matches.
+ */
+export const handleVerifyProof = async (proof: ProofWithCircuit): Promise<VerificationResult> => {
+  for (const c of candidateCircuits(proof)) {
+    try {
+      if (await verifyWith(c, proof)) {
+        console.log(`✅ [VERIFY] Verification successful with ${c.name} (v${c.version})`);
+        return {
+          valid: true,
+          circuit: c.name,
+          version: c.version,
+          keyBits: c.keyBits,
+          legacyRedcUnbound: c.version === 1 && c.keyBits === 2048,
+        };
+      }
+    } catch (e) {
+      console.warn(`[VERIFY] ${c.name} (v${c.version}) failed:`, e);
+    }
+  }
+  console.error("❌ [VERIFY] Proof verification failed with all candidate circuits");
+  return { valid: false };
+};
+
+/**
+ * Extract masked header and body from proof public inputs.
+ *
+ * Layout: [prefix fields (2 for v1, 3 for v2), ...maxHeaderLength header bytes,
+ * ...maxBodyLength body bytes]. Each byte is a 32-byte hex field, e.g. "0x…61" = 'a'.
+ * Masked characters are 0x00. The original email cannot be recovered from the proof.
+ */
+export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
   maskedHeader: string;
   maskedBody: string;
   publicKeyHash: Uint8Array;
   emailNullifier: Uint8Array;
+  version: CircuitVersion;
 } | null {
   try {
-    if (!proof.publicInputs || proof.publicInputs.length < 4) {
-      console.error("Invalid proof: publicInputs too short");
+    const layout = candidateCircuits(proof)[0];
+    if (!layout) {
+      console.error(`Unknown circuit configuration: ${proof.publicInputs?.length} publicInputs`);
       return null;
     }
+    const prefix = prefixLength(layout.version);
 
-    // Determine circuit configuration from publicInputs length
-    // Structure: [pubkeyHash, nullifier, ...headerBytes, ...bodyBytes]
-    // - First 2 elements: 32-byte hex field elements (pubkey hash + nullifier)
-    // - Next maxHeaderLength elements: one byte per field (header bytes)
-    // - Remaining maxBodyLength elements: one byte per field (body bytes)
-    const totalInputs = proof.publicInputs.length;
-    let maxHeaderLength: number;
-    let maxBodyLength: number;
-
-    // Try to use metadata first (most reliable)
-    const proofWithMeta = proof as ProofDataWithMetadata;
-    if (proofWithMeta.__maxHeaderLength && proofWithMeta.__maxBodyLength) {
-      maxHeaderLength = proofWithMeta.__maxHeaderLength;
-      maxBodyLength = proofWithMeta.__maxBodyLength;
-    } else {
-      // Fall back to detecting from publicInputs length
-      // Structure: 2 (pubkey + nullifier) + maxHeaderLength + maxBodyLength
-      // Find matching circuit config
-      const matchingConfig = CIRCUIT_CONFIGS.find(config => {
-        const expectedLength = 2 + config.maxHeaderLength + config.maxBodyLength;
-        return expectedLength === totalInputs;
-      });
-
-      if (matchingConfig) {
-        maxHeaderLength = matchingConfig.maxHeaderLength;
-        maxBodyLength = matchingConfig.maxBodyLength;
-      } else {
-        console.error(`Unknown circuit configuration: ${totalInputs} publicInputs`);
-        return null;
-      }
-    }
-
-    console.log(`Detected circuit: maxHeader=${maxHeaderLength}, maxBody=${maxBodyLength}`);
-
-    // Helper to extract a single byte from a 32-byte padded hex field
-    // e.g., "0x0000000000000000000000000000000000000000000000000000000000000061" -> 0x61
     const hexFieldToByte = (hexField: unknown): number => {
-      if (typeof hexField === 'string') {
-        // Remove 0x prefix if present
-        const hex = hexField.startsWith('0x') ? hexField.slice(2) : hexField;
-        // Parse the last 2 characters (1 byte) - the actual value
-        const lastByte = hex.slice(-2);
-        return parseInt(lastByte, 16);
+      if (typeof hexField === "string") {
+        const hex = hexField.startsWith("0x") ? hexField.slice(2) : hexField;
+        return parseInt(hex.slice(-2), 16);
       }
-      if (typeof hexField === 'number') {
-        return hexField & 0xFF;
-      }
+      if (typeof hexField === "number") return hexField & 0xff;
       return 0;
     };
-
-    // Helper to convert hex string to Uint8Array (for pubkey hash and nullifier)
     const hexToUint8Array = (hexField: unknown): Uint8Array => {
-      if (typeof hexField === 'string') {
-        const hex = hexField.startsWith('0x') ? hexField.slice(2) : hexField;
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < bytes.length; i++) {
-          bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-        }
-        return bytes;
-      }
-      return new Uint8Array(0);
+      if (typeof hexField !== "string") return new Uint8Array(0);
+      const hex = hexField.startsWith("0x") ? hexField.slice(2) : hexField;
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      return bytes;
     };
 
-    // Extract public key hash and nullifier (first 2 elements)
     const publicKeyHash = hexToUint8Array(proof.publicInputs[0]);
-    const emailNullifier = hexToUint8Array(proof.publicInputs[1]);
+    const emailNullifier = hexToUint8Array(proof.publicInputs[prefix - 1]);
 
-    // Extract header bytes (elements 2 to 2+maxHeaderLength)
-    const headerStartIdx = 2;
-    const headerEndIdx = headerStartIdx + maxHeaderLength;
-    const headerBytes = new Uint8Array(maxHeaderLength);
-    for (let i = 0; i < maxHeaderLength; i++) {
-      headerBytes[i] = hexFieldToByte(proof.publicInputs[headerStartIdx + i]);
+    const headerBytes = new Uint8Array(layout.maxHeaderLength);
+    for (let i = 0; i < layout.maxHeaderLength; i++) {
+      headerBytes[i] = hexFieldToByte(proof.publicInputs[prefix + i]);
+    }
+    const bodyStart = prefix + layout.maxHeaderLength;
+    const bodyBytes = new Uint8Array(layout.maxBodyLength);
+    for (let i = 0; i < layout.maxBodyLength; i++) {
+      bodyBytes[i] = hexFieldToByte(proof.publicInputs[bodyStart + i]);
     }
 
-    // Extract body bytes (elements 2+maxHeaderLength to end)
-    const bodyStartIdx = headerEndIdx;
-    const bodyBytes = new Uint8Array(maxBodyLength);
-    for (let i = 0; i < maxBodyLength; i++) {
-      bodyBytes[i] = hexFieldToByte(proof.publicInputs[bodyStartIdx + i]);
-    }
-
-    // Convert to strings (null bytes 0x00 represent masked characters)
-    const decoder = new TextDecoder("utf-8", { fatal: false });
-
-    // Trim SHA-256 padding and trailing zeros from header and body
-    // The circuit includes SHA-256 padding for DKIM verification:
-    // - Original content
-    // - 0x80 byte (padding start marker)
-    // - Zero bytes
-    // - 64-bit message length
-    // We need to find and remove this padding to show only the actual email content
+    // Trim the circuit's zero padding and the SHA-256 padding (0x80, zeros, 8-byte length) that
+    // the DKIM hashing carries along, leaving only the email content.
     const trimSha256Padding = (bytes: Uint8Array): Uint8Array => {
-      // First, trim trailing zeros from circuit padding
       let end = bytes.length;
-      while (end > 0 && bytes[end - 1] === 0) {
-        end--;
-      }
-
-      // Now look for SHA-256 padding pattern:
-      // The padding ends with a 64-bit (8 byte) length field
-      // Before that are zeros, and before those is the 0x80 marker
-      // We need to find the 0x80 byte that starts the SHA-256 padding
-
-      // Look backwards from current end for the 0x80 padding marker
-      // It should be followed by zeros (and possibly length bytes we already trimmed)
-      let sha256PaddingStart = -1;
+      while (end > 0 && bytes[end - 1] === 0) end--;
       for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
-        // SHA-256 padding can be at most 64+8=72 bytes
         if (bytes[i] === 0x80) {
-          // Check if everything after this (up to where we trimmed) looks like padding
-          // (should be zeros or the length bytes)
           let looksLikePadding = true;
           for (let j = i + 1; j < end; j++) {
-            // After 0x80, we expect zeros, or non-zero bytes could be the length field
-            // The length field is at the very end, so if we see non-zero,
-            // it should be within the last 8 bytes
             if (bytes[j] !== 0 && j < end - 8) {
               looksLikePadding = false;
               break;
             }
           }
           if (looksLikePadding) {
-            sha256PaddingStart = i;
+            end = i;
             break;
           }
         }
       }
-
-      if (sha256PaddingStart >= 0) {
-        end = sha256PaddingStart;
-      }
-
       return bytes.slice(0, end);
     };
 
-    const trimmedHeaderBytes = trimSha256Padding(headerBytes);
-    const trimmedBodyBytes = trimSha256Padding(bodyBytes);
-
-    const maskedHeader = decoder.decode(trimmedHeaderBytes);
-    const maskedBody = decoder.decode(trimmedBodyBytes);
-
+    const decoder = new TextDecoder("utf-8", { fatal: false });
     return {
-      maskedHeader,
-      maskedBody,
+      maskedHeader: decoder.decode(trimSha256Padding(headerBytes)),
+      maskedBody: decoder.decode(trimSha256Padding(bodyBytes)),
       publicKeyHash,
       emailNullifier,
+      version: layout.version,
     };
   } catch (e) {
     console.error("Error extracting masked data from proof:", e);

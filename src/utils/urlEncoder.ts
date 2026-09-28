@@ -1,5 +1,6 @@
 import type { ProofData } from "@aztec/bb.js";
 import { API_BASE } from "./apiBase";
+import type { ProofWithCircuit } from "../lib";
 
 /**
  * Stores proof on server (via direct GCS upload) and creates a short verification URL
@@ -61,9 +62,12 @@ export async function createVerificationUrl(
     throw new Error(`Unexpected proof type: ${typeof rawProof}`);
   };
 
+  const withCircuit = proof as ProofWithCircuit;
   const proofForStorage = {
     publicInputs: (proof.publicInputs ?? []).map((input) => normalizePublicInput(input)),
     proof: normalizeProofBytes(),
+    // Hints only: the verify page re-derives the circuit from the public-input count.
+    ...(withCircuit.circuit ? { circuit: withCircuit.circuit, circuitVersion: withCircuit.circuitVersion } : {}),
   };
 
   const proofJson = JSON.stringify(proofForStorage);
@@ -80,8 +84,10 @@ export async function createVerificationUrl(
     },
     body: JSON.stringify({
       uuid,
-      headerMask: headerMask, // Store full header mask, not truncated
-      bodyMask: bodyMask, // Store full body mask, not truncated
+      // REASON: masks are not needed to verify (the verify page reads everything from the proof
+      // outputs) and would publish the exact positions and lengths of every hidden span.
+      headerMask: [],
+      bodyMask: []
     }),
   });
 
@@ -206,7 +212,9 @@ export async function fetchProofData(uuid: string): Promise<{
     
     // IMPORTANT: publicInputs should be STRINGS (hex strings), not Uint8Arrays
     // The library expects strings, and we stored them as strings
-    const proof: ProofData = {
+    const proof: ProofWithCircuit = {
+      ...(typeof data.proof.circuit === 'string' ? { circuit: data.proof.circuit } : {}),
+      ...(data.proof.circuitVersion === 1 || data.proof.circuitVersion === 2 ? { circuitVersion: data.proof.circuitVersion } : {}),
       publicInputs: data.proof.publicInputs.map((arr: unknown, idx: number) => {
         // If it's already a string, keep it as is (this is what the library expects)
         if (typeof arr === 'string') {

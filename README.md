@@ -40,7 +40,8 @@ $R prove email.eml <same flags> --publish              # prove locally, upload p
 $R verify "https://redacted.zk.email/verify?id=…"       # proof check + DKIM key matches sender DNS
 ```
 
-- It uses the same circuits as the site: pinned by commit, and each artifact is checked against its sha256 before use.
+- It uses the same circuits as the site: pinned by commit, and each artifact and verification key is checked against its sha256 before use.
+- It proves emails with bodies up to **49,152 bytes**. The "large" tier is CLI-only; bodies over 8,448 bytes need about 7 GB of RAM and about a minute on a recent laptop.
 - `publish` sends only `{publicInputs, proof}`. The raw email and the mask arrays are never sent.
 - `verify` also checks that the proof's DKIM public-key hash matches the key published in DNS (or in [archive.zk.email](https://archive.zk.email)) for the revealed `d=`/`s=`. The web verify page doesn't do that check yet.
 - Agents that fetch the site find the skill through `/llms.txt`, a `<link rel="alternate">` to `SKILL.md`, and a static block in `index.html`. Humans see it in the "For AI agents" section on the home page.
@@ -76,7 +77,7 @@ Redacted's ZK circuits verify this DKIM signature inside the proof—so anyone c
 
 | Layer | Tech |
 |-------|------|
-| **ZK Circuits** | [Noir](https://noir-lang.org/) (v1.0.0-beta.5) |
+| **ZK Circuits** | [Noir](https://noir-lang.org/) (v1.0.0-rc.3) |
 | **Proving Backend** | [Barretenberg](https://github.com/AztecProtocol/barretenberg) UltraHonk |
 | **Email Verification** | [@zk-email/zkemail-nr](https://github.com/zkemail/zkemail.nr) |
 | **Frontend** | React 19 + TypeScript + Vite |
@@ -84,14 +85,32 @@ Redacted's ZK circuits verify this DKIM signature inside the proof—so anyone c
 
 ### Circuit Variants
 
-The app automatically selects the optimal circuit based on your email:
+Circuits are compiled with **Noir 1.0.0-rc.3** against **zkemail.nr v2** (vendored and ported; see
+`src/circuit/vendor/VENDORED.md`), and proved and verified with **Barretenberg 5.0.0**. The app
+selects the smallest circuit that fits your email:
 
-| Circuit | RSA Key Size | Max Body Size |
-|---------|--------------|---------------|
-| `email_mask_1024_small` | 1024-bit | 4 KB |
-| `email_mask_1024_mid` | 1024-bit | 8.4 KB |
-| `email_mask_2048_small` | 2048-bit | 4 KB |
-| `email_mask_2048_mid` | 2048-bit | 8.4 KB |
+| Circuit | RSA key | Max signed header | Max body | Where it can be proved |
+|---------|---------|-------------------|----------|------------------------|
+| `email_mask_{1024,2048}_small` | 1024 / 2048-bit | 2 KB | 4 KB | browser or CLI |
+| `email_mask_{1024,2048}_mid` | 1024 / 2048-bit | 2 KB | 8.4 KB | browser or CLI |
+| `email_mask_{1024,2048}_large` | 1024 / 2048-bit | 4 KB | 48 KB | CLI only (~7 GB RAM, ~1 min) |
+
+Verification uses precomputed verification keys (`src/circuit/target/vk/`), so it takes seconds in
+the browser for every tier.
+
+**Security upgrade (2026-09).** The original circuits (Noir 1.0.0-beta.5, zkemail.nr
+v1.0.1-beta.5) had two problems:
+1. Their 2048-bit DKIM key hash committed only to the RSA modulus, not the reduction parameter
+   (`redc`), so a malicious prover could pick an arbitrary `redc` (Veridise finding, fixed in
+   zkemail.nr PR #62).
+2. They were compiled with a Noir version affected by the 2026 Brillig/SSA advisories.
+
+v2 circuits output both hashes. The old artifacts are kept in `src/circuit/legacy-v1/` only so
+links made before the upgrade still verify, and the verify page labels 2048-bit legacy proofs as
+weaker evidence.
+
+Rebuild with `NARGO_BIN=… BB_BIN=… yarn compile:circuits` (nargo 1.0.0-rc.3, bb 5.0.0). Then pin
+the CLI with `node scripts/pin-cli-circuits.mjs <commit>`.
 
 ## Getting Started
 

@@ -186,13 +186,19 @@ export default function VerifyPage() {
     setVerificationStatus(null);
 
     try {
-      const isValid = await handleVerifyProof(proof);
+      const result = await handleVerifyProof(proof);
+      const isValid = result.valid;
 
       setVerificationStatus({
         verified: isValid,
-        message: isValid
-          ? "Proof verified successfully! The email content is authentic."
-          : "Proof verification failed. The email content may have been tampered with.",
+        message: !isValid
+          ? "Proof verification failed. The email content may have been tampered with."
+          : result.legacyRedcUnbound
+            // v1 2048-bit circuits did not bind the RSA reduction parameter into the key hash
+            // (zkemail.nr PR #62), so a valid legacy proof is weaker evidence than a v2 one.
+            ? "Proof verified, but it was made with the legacy circuit from before a 2026 security fix. " +
+              "Treat it as weaker evidence and ask the sender for a new proof."
+            : "Proof verified successfully! The email content is authentic.",
       });
       if (isValid) {
         trackEvent("proof_validation_success");
