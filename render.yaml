@@ -22,11 +22,10 @@ services:
       # Optional: CORS origins (comma-separated)
       - key: ALLOWED_ORIGINS
         sync: false  # Set to your Render service URL if needed
-      # Frontend API URL (set to your Render service URL)
-      # IMPORTANT: Set this to https://your-service-name.onrender.com/api
-      # Replace 'your-service-name' with your actual Render service name
+      # Dev-only API URL override. Production builds always call the same-origin /api served
+      # by this service (see src/utils/apiBase.ts), so this value is ignored in production.
       - key: VITE_GCS_API_URL
-        sync: false  # Set this in Render dashboard before first deploy
+        sync: false
       # PostHog analytics (frontend env vars, used by Vite at build time)
       - key: VITE_POSTHOG_KEY
         sync: false  # Set this in Render dashboard to your PostHog project API key

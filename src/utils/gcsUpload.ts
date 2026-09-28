@@ -1,9 +1,11 @@
+import { API_BASE } from "./apiBase";
+
 /**
  * Generates a UUID for a new email/proof pair
  * @returns Promise with the UUID
  */
 export async function generateUuid(): Promise<string> {
-  const apiUrl = import.meta.env.VITE_GCS_API_URL || 'http://localhost:3001/api';
+  const apiUrl = API_BASE;
 
   try {
     const response = await fetch(`${apiUrl}/generate-uuid`, {

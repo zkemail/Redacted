@@ -1,4 +1,5 @@
 import type { ProofData } from "@aztec/bb.js";
+import { API_BASE } from "./apiBase";
 
 /**
  * Stores proof on server (via direct GCS upload) and creates a short verification URL
@@ -69,7 +70,7 @@ export async function createVerificationUrl(
 
   console.log("Proof for storage: ", proofJson);
   
-  const apiUrl = import.meta.env.VITE_GCS_API_URL || 'http://localhost:3001/api';
+  const apiUrl = API_BASE;
   
   // Step 1: Get signed URL for proof upload (using the same UUID)
   const urlResponse = await fetch(`${apiUrl}/get-proof-upload-url`, {
@@ -135,7 +136,7 @@ export async function fetchProofData(uuid: string): Promise<{
   headerMask: number[];
   bodyMask: number[];
 }> {
-  const apiUrl = import.meta.env.VITE_GCS_API_URL || 'http://localhost:3001/api';
+  const apiUrl = API_BASE;
   
   try {
     const response = await fetch(`${apiUrl}/get-data/${uuid}`);
