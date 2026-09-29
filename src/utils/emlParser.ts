@@ -1,5 +1,5 @@
 import PostalMime, { type Address } from 'postal-mime';
-import { verifyDKIMSignature } from '@zk-email/zkemail-nr';
+import { verifyDkimWithKeyCandidates } from './dkimKeys';
 import { verifyWithSignerFallback } from './dkimSigner';
 import { bodyViewFor } from './qp';
 
@@ -11,7 +11,7 @@ export interface EmailFieldRange {
 }
 
 // Type for DKIM verification result from the SDK
-export type DKIMResult = Awaited<ReturnType<typeof verifyDKIMSignature>>;
+export type DKIMResult = Awaited<ReturnType<typeof verifyDkimWithKeyCandidates>>;
 
 export interface ParsedEmail {
   from: string;
@@ -198,7 +198,8 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   // Also store full DKIM result to reuse during proof generation (Phase 2 optimization)
   try {
     dkimResult = await verifyWithSignerFallback(emlContent, (raw, domain) =>
-      verifyDKIMSignature(raw as string, domain, undefined, true)
+      // DNS (Google + Cloudflare), then every archived key for the selector (see dkimKeys.ts)
+      verifyDkimWithKeyCandidates(raw, domain)
     );
     // Convert Buffers to strings for storage
     dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');

@@ -14,6 +14,7 @@
     "@aztec/bb.js": "5.0.0",
     "@mach-34/noir-bignum-paramgen": "^1.1.2",
     "@noir-lang/noir_js": "1.0.0-rc.3",
+    "@zk-email/helpers": "6.4.2",
     "@zk-email/zkemail-nr": "2.0.0",
     "bb-legacy": "npm:@aztec/bb.js@0.84.0",
     "circomlibjs": "^0.1.7"

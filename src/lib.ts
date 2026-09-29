@@ -220,11 +220,9 @@ export const handleGenerateProof = async (
 ) => {
   let dkimResult = existingDkimResult;
   if (!dkimResult) {
-    const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
+    const { verifyDkimWithKeyCandidates } = await import("./utils/dkimKeys");
     const { verifyWithSignerFallback } = await import("./utils/dkimSigner");
-    dkimResult = await verifyWithSignerFallback(email, (raw, domain) =>
-      verifyDKIMSignature(raw as string, domain)
-    );
+    dkimResult = await verifyWithSignerFallback(email, (raw, domain) => verifyDkimWithKeyCandidates(raw, domain));
   }
 
   // The UI's body mask is per character of the displayed body, which is decoded for
