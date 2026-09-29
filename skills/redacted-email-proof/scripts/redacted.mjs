@@ -34,7 +34,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
 // and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
 // could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
-const CIRCUIT_REF = "68bf94bba4b62f88e6028dc911d1d303acb343f4";
+const CIRCUIT_REF = "f7fd8f459f8ffa112599bc20bc947d6a0167c114";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
@@ -43,23 +43,23 @@ const V2 = {
   prefix: 5, // [modulus hash, redc hash, nullifier, header len, body len]
   circuits: [
     { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_1024_small.json",
-      sha256: "2653d76b6bac633f36084254aa4e2941b31d9c136db9d02bb0fdfffa980f6f29",
-      vkSha256: "e6d57a54e5b6372443ccb9212bf421c90aab6ba7170b9b7aff3a7dc7971200be" },
+      sha256: "4a4ed744799a522a8215c8f384e92a51489c038f70271af39b4aee5d47e84617",
+      vkSha256: "b12c1edf9fee08fa34c94b34680b1f4e133495193e49b0dd51b96c4d3283c623" },
     { name: "email_mask_1024_mid", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_1024_mid.json",
-      sha256: "0011fa76ee3c606fbaca6e85f5a4146af697452380f713acb6e674f31454e76d",
-      vkSha256: "ecc3dfaa7c8d6c3eb7f9c556850d7400aa9b7695c2fb07e43252b8fdd5e501e2" },
-    { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_1024_large.json",
-      sha256: "a9b2fe1a267e3efa02b5abf845a5f71d4da49e240133712abd25a54ba84e7b6a",
-      vkSha256: "5ab69124e1b214a44cfead77ed2984b9bcdc0274b41c3e8e40525566259eb574" },
+      sha256: "0225f4ca0286522c7876a9275d6036ffe8b8b9e74b66d752137c5c4e7ecad2b1",
+      vkSha256: "765fa7be5b1c74028624d2760f9fd300c05e9bdf63e1be33eaf76201dd6df617" },
+    { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 48000, file: "email_mask_1024_large.json",
+      sha256: "bf5897eb4ba364925d391f63fe639e032e4e14d8aea52a9e8db96088b59f15c8",
+      vkSha256: "ae0335801e676bfc396b868849afae8f6d849178e3a17ece6559819137577a6a" },
     { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
-      sha256: "b042ba6f85e3b574bc87c57b29afacaad23a6c693fd53609a58e93b1b15b30b8",
-      vkSha256: "0f8f33a5ebcb91e5b30690636dbc32c7cb3d9c7449252e0eb4a772df2d36e306" },
+      sha256: "cd6d5ad5131ba0139ae7ffabf394c369c03e2f64ef621206453b8dd4eda60694",
+      vkSha256: "088a51ad9d8560fe0aa6e42f68ec4c16a70d83c4165806b87e5816784658b649" },
     { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_2048_mid.json",
-      sha256: "84cbf2060a68781b086bbcc3cb7e9c3eabbddf9a0c61a4ccec1ac80b36bb5c13",
-      vkSha256: "24c00c224373f648b359214ea50e439eb4e11a46f2e0ea79d7d143f0e7b6db48" },
-    { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_2048_large.json",
-      sha256: "fb2e6d153bfecdf2dbe2e57ee9a358160a85e2b2ce185af19b947415d06dd02a",
-      vkSha256: "b12ee63a85ee9fe8bcd52cb773e632e1a14591984aa5bb82330478573d7b3b99" },
+      sha256: "b90d06604d49d33ebcf4af2bd1904fe0fb4c1a7fe063ad0821baa7b5870ed001",
+      vkSha256: "1796fd0ceb709396bbb8f8ae9b496d4b4ac086fdb83de9c5b26bd85374b0383c" },
+    { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 48000, file: "email_mask_2048_large.json",
+      sha256: "8022a74af7eb7145565d6bb8612b9ddbd41a321b556d1e26f45295a213ddea3e",
+      vkSha256: "c2dac85da0771ccc1b8112f51dc1a057558be46007eaa862edc59169c2ba3657" },
   ],
 };
 const V1 = {
