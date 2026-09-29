@@ -66,7 +66,7 @@ const publicInputCount = (c: CircuitConfig) =>
   prefixLength(c.version) + c.maxHeaderLength + c.maxBodyLength;
 
 // Browser-provable v2 circuits. Vite code-splits each JSON, so only the selected one downloads.
-// NOTE: the large tier is intentionally absent. Proving its 2^22-gate circuit needs ~7 GB,
+// NOTE: the large (2^22) and xl (2^23) tiers are intentionally absent. Proving them needs ~7–8.5 GB,
 // beyond a browser's 4 GB WebAssembly memory. Those emails are proved with the CLI
 // (skills/redacted-email-proof) and verified here from the VK alone.
 const V2_LOADERS: Record<string, () => Promise<unknown>> = {
