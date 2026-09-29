@@ -78,3 +78,14 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
 - Check that an old v1 link still verifies (legacy warning; CLI exit 4).
 - Run `yarn test`: soundness plus exact decoding. Any change to the circuit's outputs must keep
   it green.
+
+## DKIM key lookup and the archive rate limit
+- Keys come from `src/utils/dkimKeys.ts` (a copy lives in the CLI). It tries Google + Cloudflare
+  DoH first, then every archived key for the selector. `@zk-email/helpers` alone tries one DNS
+  key, and only the first archived key, and only if the DNS lookup fails. That missed 12 of 132
+  corpus emails whose keys were rotated under the same selector (mostly Amazon/SES).
+- archive.prove.email allows **10 requests/min per IP**. On a 429 it returns an error object, and
+  the helper's own fallback crashes ("data.find is not a function"). An unpaced corpus
+  DKIM sweep therefore misreports ~30 emails as failures. When sweeping, space archive calls
+  ≥6.5 s apart (wrap `fetch`), or interleave them with proving. Always compare before and after
+  runs under the same pacing.
