@@ -13,6 +13,7 @@ import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
 import { decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
+import { dkimFieldSequence } from "./utils/dkimFields";
 
 /**
  * Circuit versions
@@ -228,12 +229,22 @@ export const handleGenerateProof = async (
   // Pad masks with 1s (reveal) up to the circuit size: padding bytes are zeros anyway.
   const pad = (mask: number[], n: number) =>
     mask.length < n ? [...mask, ...new Array(n - mask.length).fill(1)] : mask.slice(0, n);
-  const inputs = await generateEmailVerifierInputsFromDKIMResult(dkimResult, {
+  // REASON: zkemail-nr's input generator can't find a c=simple "DKIM-Signature" (see
+  // utils/dkimFields.ts). Give it a copy with only the field name lowercased (same length), then
+  // restore the real signed header bytes and set the sequence and bh index ourselves.
+  const headerText = new TextDecoder("latin1").decode(dkimResult.headers);
+  const seq = dkimFieldSequence(headerText);
+  const lowered = new Uint8Array(dkimResult.headers);
+  for (let i = seq.index; i < seq.index + 14; i++) lowered[i] = headerText.charCodeAt(i) | 0x20;
+  const inputs = await generateEmailVerifierInputsFromDKIMResult({ ...dkimResult, headers: Buffer.from(lowered) }, {
     headerMask: pad(headerMask, config.maxHeaderLength),
     bodyMask: pad(bodyMask, config.maxBodyLength),
     maxHeadersLength: config.maxHeaderLength,
     maxBodyLength: config.maxBodyLength,
   });
+  for (let i = 0; i < dkimResult.headers.length; i++) inputs.header.storage[i] = String(dkimResult.headers[i]);
+  inputs.dkim_header_sequence = { index: String(seq.index), length: String(seq.length) };
+  inputs.body_hash_index = String(seq.bodyHashIndex);
 
   // REASON: the v2 circuits use noir-bignum >= v0.9, whose Barrett parameter is
   // floor(2^(2k + 6) / n). zkemail-nr 2.0.0 still derives redc with 2^(2k + 4) (via

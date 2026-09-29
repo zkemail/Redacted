@@ -500,6 +500,40 @@ function redcLimbsV2(bignum, modulus, keyBits) {
   return bignum.bnToLimbStrArray(redc);
 }
 
+// Locate the last DKIM-Signature field (any case, folded or not) and its bh= value.
+// Mirrors src/utils/dkimFields.ts. REASON: zkemail-nr's getHeaderSequence can't find a c=simple
+// "DKIM-Signature" (case-sensitive, stops at the first line break, takes the FIRST header).
+export function dkimFieldSequence(header) {
+  let index = -1;
+  for (const m of header.matchAll(/(?:^|\r\n)dkim-signature:/gi)) index = m.index + (m[0].startsWith("\r\n") ? 2 : 0);
+  if (index < 0) throw new Error("No DKIM-Signature field in the signed header");
+  let end = header.length;
+  for (let i = header.indexOf("\r\n", index); i >= 0; i = header.indexOf("\r\n", i + 2)) {
+    const next = header[i + 2];
+    if (next !== " " && next !== "\t") {
+      end = i;
+      break;
+    }
+  }
+  const m = /(?:[:;] ?|;\r\n[ \t])bh=/.exec(header.slice(index, end));
+  if (!m) throw new Error("bh= tag not found in a position the circuit accepts");
+  return { index, length: end - index, bodyHashIndex: index + m.index + m[0].length };
+}
+
+// zkemail-nr input generation, but with the DKIM field located by dkimFieldSequence. zkemail-nr
+// gets a copy whose field name is lowercased (same length); the real signed bytes are restored.
+function circuitInputs(zk, dkim, params) {
+  const h = lat1(dkim.headers);
+  const seq = dkimFieldSequence(h);
+  const lowered = Buffer.from(dkim.headers);
+  for (let i = seq.index; i < seq.index + 14; i++) lowered[i] |= 0x20;
+  const inputs = zk.generateEmailVerifierInputsFromDKIMResult({ ...dkim, headers: lowered }, params);
+  for (let i = 0; i < dkim.headers.length; i++) inputs.header.storage[i] = String(dkim.headers[i]);
+  inputs.dkim_header_sequence = { index: String(seq.index), length: String(seq.length) };
+  inputs.body_hash_index = String(seq.bodyHashIndex);
+  return inputs;
+}
+
 // Expected key-hash public outputs for a DNS modulus. v2: [poseidon(modulus), poseidon(redc)] — redc
 // is derived from the modulus here, so a proof built with a forged redc cannot match. v1: one field.
 async function pubkeyHash(modulus, keyBits, version) {
@@ -652,7 +686,7 @@ async function cmdProve(file, opts) {
   const { bb, noir, zk, bignum } = await lib();
   const circuit = await loadCircuit(c);
   const pad = (arr, n) => (arr.length < n ? [...arr, ...new Array(n - arr.length).fill(1)] : arr.slice(0, n));
-  const inputs = zk.generateEmailVerifierInputsFromDKIMResult(dkim, {
+  const inputs = circuitInputs(zk, dkim, {
     headerMask: pad(m.headerMask, c.maxHeaderLength),
     bodyMask: pad(m.bodyMask, c.maxBodyLength),
     maxHeadersLength: c.maxHeaderLength,

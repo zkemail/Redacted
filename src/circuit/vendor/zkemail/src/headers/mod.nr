@@ -40,12 +40,14 @@ fn check_header_field_bounds<let MAX_HEADER_LENGTH: u32, let MAX_HEADER_FIELD_LE
         assert(header.get_unchecked(end_index + 1) == LF, "Header field must end with CRLF");
     }
 
-    // check that the header field name matches the expected name
+    // check that the header field name matches the expected (lowercase) name, ignoring case.
+    // Redacted patch: header names are case-insensitive (RFC 5322). Relaxed canonicalization
+    // lowercases them, but c=simple keeps e.g. "DKIM-Signature", which the exact match rejected.
     for i in 0..HEADER_FIELD_NAME_LENGTH {
-        assert(
-            header.get_unchecked(header_field_sequence.index + i) == header_field_name[i],
-            "Header field name does not match",
-        );
+        let byte = header.get_unchecked(header_field_sequence.index + i);
+        let is_upper = (byte >= 0x41) & (byte <= 0x5a);
+        let lower = if is_upper { byte + 0x20 } else { byte };
+        assert(lower == header_field_name[i], "Header field name does not match");
     }
     assert(
         header.get_unchecked(header_field_sequence.index + HEADER_FIELD_NAME_LENGTH) == 0x3a,
@@ -75,13 +77,25 @@ pub fn constrain_header_field<let MAX_HEADER_LENGTH: u32, let MAX_HEADER_FIELD_L
         header_field_name,
     );
 
-    // check the header field is uninterrupted
+    // Redacted patch: the loop below only scans MAX_HEADER_FIELD_LENGTH bytes, so the field must
+    // not be longer, or its tail would go unchecked.
+    assert(header_field_sequence.length <= MAX_HEADER_FIELD_LENGTH, "Header field too long");
+
+    // check the header field is uninterrupted: a CR may only start a fold (CRLF + SP/HTAB, a
+    // continuation of the same field per RFC 5322, as kept by c=simple). A CRLF followed by
+    // anything else starts a new header line and must not be inside the field.
     let start_index = header_field_sequence.index + HEADER_FIELD_NAME_LENGTH + 1;
     for i in 0..MAX_HEADER_FIELD_LENGTH {
-        // is it safe enough to cut this constraint cost in half by not checking lf? i think so
         let index = start_index + i;
         if (index < header_field_sequence.end_index()) {
-            assert(header.get_unchecked(index) != CR, "Header field must not contain newlines");
+            if header.get_unchecked(index) == CR {
+                let next = header.get_unchecked(index + 1);
+                let wsp = header.get_unchecked(index + 2);
+                assert(
+                    (next == LF) & ((wsp == 0x20) | (wsp == 0x09)),
+                    "Header field must not contain newlines",
+                );
+            }
         }
     }
 }
