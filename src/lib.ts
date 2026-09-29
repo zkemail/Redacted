@@ -122,10 +122,13 @@ export function clearCircuitCache(): void {
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
 
 // CRS (SRS) points a Barretenberg instance loads. Proving needs at least the circuit's dyadic
-// size: 2^20 for small/mid (≈564k / 900k gates) and QP small, 2^21 for QP mid (≈1.4M gates). Verifying from a VK needs
+// size: 2^20 for small and mid (≈559k / 890k gates).
+// REASON (do not raise to 2^21): bb.js caches the uncompressed CRS in IndexedDB as ONE value,
+// and 2^21 points = 134 MB exceeds Chromium's ~127 MB per-value limit ("The serialized keys
+// and/or value are too large"), so every browser proof failed. Browser tiers must stay <= 2^20. Verifying from a VK needs
 // almost none, but bb.js 5 downloads the compressed CRS in 2^17-point (4 MB) chunks and rejects
 // any other size ("compressed points_buf size … must be a positive multiple of 4194304").
-const PROVE_SRS_POINTS = 2 ** 21;
+const PROVE_SRS_POINTS = 2 ** 20;
 const VERIFY_SRS_POINTS = 2 ** 17;
 
 // REASON: bb.js 5 caches the CRS in IndexedDB under "g1Data" and passes the cached buffer

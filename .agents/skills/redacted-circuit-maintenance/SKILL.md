@@ -58,6 +58,9 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
 - **Tier sizing.** Prover cost follows the dyadic size (next power of 2 above the gate count). Fill
   the domain: about 72 gates per body byte, so 2^22 holds a 48 KB body plus a 4 KB header
   (3.91M gates).
+- **Browser tiers must stay <= 2^20.** bb.js caches the uncompressed CRS in IndexedDB as one
+  value: 2^21 points is 134 MB, over Chromium's ~127 MB per-value cap, so proving throws
+  "serialized keys and/or value are too large".
 - **Browser limits.** The mid tier (2^20) proves in about 25 s in a browser. The large tier (2^22)
   needs about 7 GB and is CLI-only (native bb via bb.js 5 in Node).
 - `nargo test` inside `src/circuit/vendor/zkemail` resolves the parent package ("Selected package
