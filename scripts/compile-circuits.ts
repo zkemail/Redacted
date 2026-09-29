@@ -136,6 +136,8 @@ function compileCircuit(): boolean {
 function writeVk(name: string): boolean {
   const sourcePath = join(TARGET_DIR, "email_mask.json");
   const tmp = join(TARGET_DIR, `vk-tmp-${name}`);
+  // Remove the committed VK first, so a failed run can't leave an old VK next to a new artifact.
+  rmSync(join(VK_DIR, `${name}.vk`), { force: true });
   try {
     execSync(`${BB} write_vk -b "${sourcePath}" -o "${tmp}"`, { stdio: "inherit" });
     mkdirSync(VK_DIR, { recursive: true });

@@ -158,6 +158,18 @@ mod test_redc_binding_2048 {
             "redc hash (hash[1]) must change when redc is modified",
         );
     }
+
+    /// poseidon_large packs the 18 x 120-bit limbs into 17 x 121-bit chunks (2,057 bits), so bits
+    /// of redc[17] at or above bit 17 are NOT hashed. If they were accepted, redc could change
+    /// without changing hash[1]. validate_in_range must reject them. (Redacted, PR #21 review.)
+    #[test(should_fail)]
+    fn test_redc_top_limb_bits_outside_hash_are_rejected_2048() {
+        let pubkey = EmailLarge::PUBKEY;
+        let mut tampered_redc = pubkey.redc;
+        tampered_redc[17] = tampered_redc[17] + 131072; // 1 << 17: first bit the hash ignores
+        let tampered_pubkey = crate::dkim::RSAPubkey::new(pubkey.modulus, tampered_redc);
+        let _ = tampered_pubkey.hash();
+    }
 }
 
 mod test_redc_binding_1024 {
