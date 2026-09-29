@@ -16,7 +16,7 @@ import { verifyDkimWithKeyCandidates } from "../src/utils/dkimKeys";
 // @ts-expect-error - plain JS module without types
 import { verifyDkimWithKeyCandidates as cliVerify } from "../skills/redacted-email-proof/scripts/redacted.mjs";
 // @ts-expect-error - plain JS module without types
-import { installStub, restoreFetch } from "./fixtures/doh-stub.mjs";
+import { installStub, restoreFetch, archiveCalls } from "./fixtures/doh-stub.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const NAME = "sel._domainkey.example.test";
@@ -102,7 +102,7 @@ test("REGRESSION: selector gone from DNS and the signing key is not the archive'
   assert.equal(site.keySource, "archive");
 });
 
-test("current DNS key still verifies first (dns:google)", async () => {
+test("current DNS key verifies first and the archive is not queried (10 req/min limit)", async () => {
   const k = newKey();
   const eml = signedEmail(k.privateKey);
   installStub({ [NAME]: k.record }, { "example.test": archiveRows(newKey().record) });
@@ -110,6 +110,29 @@ test("current DNS key still verifies first (dns:google)", async () => {
   assert.equal(site.keySource, "dns:google");
   const cli = await cliVerify(Buffer.from(eml));
   assert.equal(cli.keySource, "dns:google");
+  assert.equal(archiveCalls.count, 0);
+});
+
+test("body hash mismatch: no key can fix it, so the archive is not queried", async () => {
+  const k = newKey();
+  const eml = signedEmail(k.privateKey).replace("Hello from", "Hullo from");
+  installStub({ [NAME]: k.record }, { "example.test": archiveRows(newKey().record) });
+  await assert.rejects(verifyDkimWithKeyCandidates(eml), /body hash did not verify/);
+  await assert.rejects(cliVerify(Buffer.from(eml)), /body hash did not verify/);
+  assert.equal(archiveCalls.count, 0);
+});
+
+test("archive 429 is retried once after retryAfterSeconds (site and CLI)", async () => {
+  const old = newKey();
+  const eml = signedEmail(old.privateKey);
+  const dns = { [NAME]: newKey().record };
+  const archive = { "example.test": archiveRows(old.record) };
+  installStub(dns, archive, { rateLimitFirst: true });
+  assert.equal((await verifyDkimWithKeyCandidates(eml)).keySource, "archive");
+  assert.equal(archiveCalls.count, 2);
+  installStub(dns, archive, { rateLimitFirst: true });
+  assert.equal((await cliVerify(Buffer.from(eml))).keySource, "archive");
+  assert.equal(archiveCalls.count, 2);
 });
 
 test("no candidate verifies: same error as before; revoked (empty p=) records are ignored", async () => {

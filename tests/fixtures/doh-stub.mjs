@@ -3,10 +3,19 @@
 // archive.prove.email key queries from ARCHIVE_STUB_RECORDS (JSON { "<domain>": [{ selector,
 // value, lastSeenAt }] }), and fails every other request, so tests never touch the network.
 const realFetch = globalThis.fetch;
-export function installStub(records = {}, archive = {}) {
+/** archive requests seen since the last installStub (tests assert the archive isn't hammered) */
+export const archiveCalls = { count: 0 };
+// opts.rateLimitFirst: answer the first archive request like the real API's 429 (1 s retry-after)
+export function installStub(records = {}, archive = {}, opts = {}) {
+  archiveCalls.count = 0;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/key") {
+      archiveCalls.count++;
+      if (opts.rateLimitFirst && archiveCalls.count === 1) {
+        const err = { error: "rate_limit_exceeded", details: { limit: 10, windowSeconds: 60, retryAfterSeconds: 1 } };
+        return new Response(JSON.stringify(err), { status: 429 });
+      }
       const rows = archive[url.searchParams.get("domain")];
       return rows ? new Response(JSON.stringify(rows), { status: 200 }) : new Response("[]", { status: 200 });
     }

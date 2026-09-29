@@ -46,8 +46,44 @@ export type DkimKeyResult = DKIMVerificationResult & { keySource: string };
 
 const pOf = (record: string) => /(?:^|;)\s*p\s*=\s*([^;]*)/i.exec(record)?.[1]?.replace(/\s+/g, "") ?? "";
 
-/** All candidate keys for `<selector>._domainkey.<domain>`, deduplicated by p=, revoked (empty p=) dropped. */
-export async function dkimKeyCandidates(name: string): Promise<KeyCandidate[]> {
+export type KeyCandidates = KeyCandidate[] & { archiveError?: string };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Archived keys for `selector` at `domain`, most recently seen first.
+ * NOTE: archive.prove.email allows 10 requests/min per IP and answers 429 with a JSON error
+ * object (not an array); the helper's own fallback crashes on that ("data.find is not a
+ * function"). Retry once after the server's retryAfterSeconds (capped at 15 s), then give up and
+ * say so in the error, rather than reporting a misleading "bad signature".
+ */
+async function archiveKeys(domain: string, selector: string): Promise<KeyCandidate[]> {
+  const url = new URL(DKIM_ARCHIVE_API);
+  url.searchParams.set("domain", domain);
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url);
+    const body = await resp.json().catch(() => null);
+    if (Array.isArray(body)) {
+      return (body as { selector: string; value: string; lastSeenAt?: string }[])
+        .filter((r) => r.selector === selector && typeof r.value === "string")
+        .sort((a, b) => String(b.lastSeenAt ?? "").localeCompare(String(a.lastSeenAt ?? "")))
+        .map((r) => ({ source: "archive", record: r.value, lastSeenAt: r.lastSeenAt }));
+    }
+    const wait = Number(body?.details?.retryAfterSeconds);
+    if (resp.status === 429 && attempt === 0 && wait > 0 && wait <= 15) {
+      await sleep(wait * 1000);
+      continue;
+    }
+    throw new Error(resp.status === 429 ? "archive.prove.email rate limit (10/min per IP); retry in a minute" : `archive.prove.email HTTP ${resp.status}`);
+  }
+}
+
+/**
+ * Candidate keys for `<selector>._domainkey.<domain>`: Google and Cloudflare DoH, plus (with
+ * `withArchive`) every archived key for the selector. Deduplicated by p=; revoked (empty p=)
+ * records dropped.
+ */
+export async function dkimKeyCandidates(name: string, withArchive = true): Promise<KeyCandidates> {
   const [selector, , ...rest] = name.split(".");
   const domain = rest.join(".");
   const dns = async (server: string, source: string): Promise<KeyCandidate[]> => {
@@ -58,30 +94,27 @@ export async function dkimKeyCandidates(name: string): Promise<KeyCandidate[]> {
       return []; // REASON: one resolver being down must not hide keys the other sources have
     }
   };
-  const archive = async (): Promise<KeyCandidate[]> => {
-    try {
-      const url = new URL(DKIM_ARCHIVE_API);
-      url.searchParams.set("domain", domain);
-      const rows = (await (await fetch(url)).json()) as { selector: string; value: string; lastSeenAt?: string }[];
-      return rows
-        .filter((r) => r.selector === selector && typeof r.value === "string")
-        .sort((a, b) => String(b.lastSeenAt ?? "").localeCompare(String(a.lastSeenAt ?? "")))
-        .map((r) => ({ source: "archive", record: r.value, lastSeenAt: r.lastSeenAt }));
-    } catch {
-      return []; // archive is best-effort
-    }
-  };
+  let archiveError: string | undefined;
+  const archive = async () =>
+    withArchive
+      ? archiveKeys(domain, selector).catch((e: Error) => {
+          archiveError = e.message;
+          return [] as KeyCandidate[];
+        })
+      : [];
   const all = (await Promise.all([dns(DoHServer.Google, "dns:google"), dns(DoHServer.Cloudflare, "dns:cloudflare"), archive()])).flat();
   const seen = new Set<string>();
-  return all.filter((c) => {
+  const out: KeyCandidates = all.filter((c) => {
     const p = pOf(c.record);
     if (!p || seen.has(p)) return false;
     seen.add(p);
     return true;
   });
+  out.archiveError = archiveError;
+  return out;
 }
 
-type ResolveKeys = (name: string) => Promise<KeyCandidate[]>;
+type ResolveKeys = (name: string, withArchive: boolean) => Promise<KeyCandidates>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawResult = { [key: string]: any };
 
@@ -124,55 +157,75 @@ export async function verifyDkimWithKeyCandidates(
   skipBodyHash = false,
   resolveKeys: ResolveKeys = dkimKeyCandidates
 ): Promise<DkimKeyResult> {
-  const cache = new Map<string, Promise<KeyCandidate[]>>();
-  const keys = (name: string) => {
-    if (!cache.has(name)) cache.set(name, resolveKeys(name));
-    return cache.get(name)!;
-  };
   const emailStr = typeof email === "string" ? email : new TextDecoder("latin1").decode(email);
-  let firstFailure: RawResult | undefined;
-  // Round i serves candidate i for every selector in the message (a message can carry several
-  // signatures); stop once i passes the longest candidate list.
-  let rounds = 1;
-  for (let i = 0; i < rounds; i++) {
-    const sourceOf = new Map<string, string>();
-    const resolver = async (name: string) => {
-      const c = await keys(name);
-      rounds = Math.max(rounds, c.length);
-      if (!c.length) throw Object.assign(new Error(`No DKIM key found for ${name}`), { code: "ENODATA" });
-      const pick = c[Math.min(i, c.length - 1)];
-      sourceOf.set(name.toLowerCase(), pick.source);
-      return [pick.record];
+  let failure: RawResult | undefined;
+  let archiveError: string | undefined;
+  // Phase 1: DNS keys only. Phase 2: archived keys, fetched only when DNS keys fail for a
+  // key-related reason. REASON: the archive allows 10 requests/min per IP; querying it for every
+  // email (or for body-hash failures, which no key can fix) would exhaust that quickly.
+  for (const withArchive of [false, true]) {
+    if (withArchive && failure && /body hash/i.test(failure.status.comment ?? "")) break;
+    const cache = new Map<string, Promise<KeyCandidates>>();
+    const keys = (name: string) => {
+      if (!cache.has(name)) {
+        cache.set(
+          name,
+          resolveKeys(name, withArchive).then((list) => {
+            archiveError ??= list.archiveError;
+            const kept: KeyCandidates = withArchive ? list.filter((c) => c.source === "archive") : list;
+            return kept;
+          })
+        );
+      }
+      return cache.get(name)!;
     };
-    let r = await runVerifier(email, domain, skipBodyHash, resolver);
-    let appliedSanitization: string | undefined;
-    if (r.status.comment === "bad signature" && enableSanitization) {
-      for (const sanitize of sanitizers) {
-        const s = await runVerifier(sanitize(emailStr), domain, skipBodyHash, resolver);
-        if (s.status.result === "pass") {
-          r = s;
-          appliedSanitization = sanitize.name;
-          break;
+    // Round i serves candidate i for every selector in the message (a message can carry several
+    // signatures); stop once i passes the longest candidate list.
+    let rounds = 1;
+    let served = 0;
+    for (let i = 0; i < rounds; i++) {
+      const sourceOf = new Map<string, string>();
+      const resolver = async (name: string) => {
+        const c = await keys(name);
+        rounds = Math.max(rounds, c.length);
+        if (!c.length) throw Object.assign(new Error(`No DKIM key found for ${name}`), { code: "ENODATA" });
+        const pick = c[Math.min(i, c.length - 1)];
+        sourceOf.set(name.toLowerCase(), pick.source);
+        served++;
+        return [pick.record];
+      };
+      let r = await runVerifier(email, domain, skipBodyHash, resolver);
+      let appliedSanitization: string | undefined;
+      if (r.status.comment === "bad signature" && enableSanitization) {
+        for (const sanitize of sanitizers) {
+          const s = await runVerifier(sanitize(emailStr), domain, skipBodyHash, resolver);
+          if (s.status.result === "pass") {
+            r = s;
+            appliedSanitization = sanitize.name;
+            break;
+          }
         }
       }
+      if (r.status.result === "pass") {
+        return {
+          signature: BigInt(`0x${Array.from(b64ToBytes(r.signature), (b) => b.toString(16).padStart(2, "0")).join("")}`),
+          headers: r.status.signedHeaders,
+          body: r.body,
+          bodyHash: r.bodyHash,
+          signingDomain: r.signingDomain,
+          publicKey: await modulusOf(r.publicKey.toString()),
+          selector: r.selector,
+          algo: r.algo,
+          format: r.format,
+          modulusLength: r.modulusLength,
+          appliedSanitization,
+          keySource: sourceOf.get(`${r.selector}._domainkey.${r.signingDomain}`.toLowerCase()) ?? "unknown",
+        };
+      }
+      // report the DNS attempt unless an archived key was actually tried
+      if (!failure || (withArchive && served > 0)) failure = r;
     }
-    if (r.status.result === "pass") {
-      return {
-        signature: BigInt(`0x${Array.from(b64ToBytes(r.signature), (b) => b.toString(16).padStart(2, "0")).join("")}`),
-        headers: r.status.signedHeaders,
-        body: r.body,
-        bodyHash: r.bodyHash,
-        signingDomain: r.signingDomain,
-        publicKey: await modulusOf(r.publicKey.toString()),
-        selector: r.selector,
-        algo: r.algo,
-        format: r.format,
-        modulusLength: r.modulusLength,
-        appliedSanitization,
-        keySource: sourceOf.get(`${r.selector}._domainkey.${r.signingDomain}`.toLowerCase()) ?? "unknown",
-      };
-    }
-    firstFailure ??= r;
   }
-  throw new Error(`DKIM signature verification failed for domain ${firstFailure!.signingDomain}. Reason: ${firstFailure!.status.comment}`);
+  const note = archiveError ? ` (${archiveError})` : "";
+  throw new Error(`DKIM signature verification failed for domain ${failure!.signingDomain}. Reason: ${failure!.status.comment}${note}`);
 }
