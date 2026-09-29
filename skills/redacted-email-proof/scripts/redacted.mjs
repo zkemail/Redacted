@@ -782,7 +782,7 @@ async function cmdProve(file, opts) {
   log(
     `Proving with UltraHonk (${threads} threads; ` +
       (xl
-        ? `XL tier: ~2-4 min on 16+ cores, longer on fewer, ~8.5 GB RAM)…`
+        ? `XL tier: ~2-4 min on 16+ cores, longer on fewer, ~14 GB RAM, needs a 16 GB+ machine)…`
         : large
           ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…`
           : `typically under a minute, ~2 GB RAM)…`),
