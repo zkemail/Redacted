@@ -1,3 +1,5 @@
+mod qp;
+
 use sha256::sha256_var;
 use std::{collections::bounded_vec::BoundedVec, hash::pedersen_hash};
 use zkemail::{
@@ -7,6 +9,8 @@ use zkemail::{
 global MAX_EMAIL_HEADER_LENGTH: u32 = 2048;
 global MAX_EMAIL_BODY_LENGTH: u32 = 4096;
 global KEY_LIMBS: u32 = KEY_LIMBS_1024;
+// true = the "_qp" variant: publish the masked quoted-printable DECODED body (see qp.nr)
+global DECODE_QP: bool = false;
 
 /**
  * Verify an arbitrary email signed by a 1024-bit or 2048-bit RSA DKIM signature and mask outputs
@@ -24,7 +28,8 @@ global KEY_LIMBS: u32 = KEY_LIMBS_1024;
  *         1: Poseidon hash of the DKIM RSA reduction parameter (redc)
  *         2: Pedersen hash of DKIM signature (email nullifier)
  *         3: header length (bytes covered by the DKIM signature)
- *         4: body length (bytes covered by the body hash)
+ *         4: body length: bytes covered by the body hash, or for the _qp variant the length of their
+ *            quoted-printable decoding
  *         then the masked header bytes, then the masked body bytes (every byte at index >= length is 0)
  *
  * REASON (outputs 0 and 1): zkemail.nr v2 binds redc into the key hash. Before that fix the 2048-bit
@@ -40,6 +45,9 @@ fn main(
     dkim_header_sequence: Sequence,
     header_mask: [bool; MAX_EMAIL_HEADER_LENGTH],
     body_mask: [bool; MAX_EMAIL_BODY_LENGTH],
+    // Prover-supplied quoted-printable decoding of the body; checked in-circuit. Ignored (pass
+    // zeros) when DECODE_QP is false. Both variants share one ABI.
+    decoded_body: [u8; MAX_EMAIL_BODY_LENGTH],
 ) -> pub ([Field; 5], [u8; MAX_EMAIL_HEADER_LENGTH], [u8; MAX_EMAIL_BODY_LENGTH]) {
 
     // verify the dkim signature over the header
@@ -59,7 +67,14 @@ fn main(
 
     // mask the header and body
     let masked_header = mask_signed_bytes(header, header_mask);
-    let masked_body = mask_signed_bytes(body, body_mask);
+    // raw variant: mask the signed bytes. QP variant: mask the proven decoding of them (masks and
+    // lengths then refer to decoded bytes; the DKIM/SHA-256 checks above always use the raw body).
+    let (masked_body, published_body_len) = if DECODE_QP {
+        let decoded_len = qp::qp_decode_check(body.storage(), body.len(), decoded_body);
+        (mask_signed_bytes(BoundedVec::from_parts(decoded_body, decoded_len), body_mask), decoded_len)
+    } else {
+        (mask_signed_bytes(body, body_mask), body.len())
+    };
 
     // hash the pubkey and signature for the standard outputs
     let email_nullifier = pedersen_hash(signature);
@@ -69,7 +84,7 @@ fn main(
         pubkey_hash[1],
         email_nullifier,
         header.len() as Field,
-        body.len() as Field,
+        published_body_len as Field,
     ];
     (standard_out, masked_header, masked_body)
 }
