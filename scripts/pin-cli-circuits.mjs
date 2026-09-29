@@ -35,10 +35,17 @@ const rows = circuits.map((c) => {
 
 const cli = path.join(root, "skills/redacted-email-proof/scripts/redacted.mjs");
 let src = fs.readFileSync(cli, "utf8");
+// REASON: both replacements must hit. An earlier version matched "prefix: 3" literally. When the
+// v2 prefix became 5 it silently updated only CIRCUIT_REF and kept stale hashes, and the CLI
+// then refused every download (sha256 mismatch). Tests: "CLI circuit pins match…".
+const before = src;
 src = src.replace(/const CIRCUIT_REF = "[^"]*";/, `const CIRCUIT_REF = "${ref}";`);
+const withRef = src;
 src = src.replace(
-  /(\n  prefix: 3, [^\n]*\n  circuits: )(?:__V2_CIRCUITS__|\[[\s\S]*?\n  \]),/,
+  /(\n  prefix: \d+, [^\n]*\n  circuits: )(?:__V2_CIRCUITS__|\[[\s\S]*?\n  \]),/,
   `$1[\n${rows.join("\n")}\n  ],`,
 );
+if (withRef === before && !before.includes(`const CIRCUIT_REF = "${ref}";`)) throw new Error("CIRCUIT_REF not found in CLI");
+if (src === withRef && !withRef.includes(rows[0])) throw new Error("V2 circuits table not found in CLI; pins NOT updated");
 fs.writeFileSync(cli, src);
 console.log(`pinned ${rows.length} circuits at ${ref} in ${path.relative(root, cli)}`);

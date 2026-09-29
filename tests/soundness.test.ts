@@ -154,3 +154,17 @@ test("legacy v1 decoding is exact, including lengths ≡ 16 (mod 32)", () => {
     assert.equal(cli.body, body.toString("latin1"), `cli body n=${n}`);
   }
 });
+
+test("CLI circuit pins match the committed artifacts and VKs", async () => {
+  // The CLI trusts only files whose sha256 matches its pins; stale pins break every CLI proof.
+  const { createHash: hash } = await import("node:crypto");
+  const cli = readFileSync(join(ROOT, "skills/redacted-email-proof/scripts/redacted.mjs"), "utf8");
+  const sha = (p: string) => hash("sha256").update(readFileSync(join(ROOT, "src/circuit/target", p))).digest("hex");
+  const configs = JSON.parse(readFileSync(join(ROOT, "src/circuit-configs.json"), "utf8")).circuits as { name: string; outputFile: string }[];
+  for (const c of configs) {
+    const row = new RegExp(`name: "${c.name}"[^}]*?sha256: "([0-9a-f]{64})"[^}]*?vkSha256: "([0-9a-f]{64})"`).exec(cli);
+    assert.ok(row, `no pin for ${c.name}`);
+    assert.equal(row[1], sha(c.outputFile), `${c.name} artifact pin is stale — run scripts/pin-cli-circuits.mjs`);
+    assert.equal(row[2], sha(`vk/${c.name}.vk`), `${c.name} VK pin is stale — run scripts/pin-cli-circuits.mjs`);
+  }
+});
