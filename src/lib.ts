@@ -216,7 +216,10 @@ export const handleGenerateProof = async (
   let dkimResult = existingDkimResult;
   if (!dkimResult) {
     const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
-    dkimResult = await verifyDKIMSignature(email);
+    const { verifyWithSignerFallback } = await import("./utils/dkimSigner");
+    dkimResult = await verifyWithSignerFallback(email, (raw, domain) =>
+      verifyDKIMSignature(raw as string, domain)
+    );
   }
 
   const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);

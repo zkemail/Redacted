@@ -1,5 +1,6 @@
 import PostalMime, { type Address } from 'postal-mime';
 import { verifyDKIMSignature } from '@zk-email/zkemail-nr';
+import { verifyWithSignerFallback } from './dkimSigner';
 
 export interface EmailFieldRange {
   rawStart: number;
@@ -195,7 +196,9 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
   // Get actual DKIM-canonicalized headers and body for accurate masking
   // Also store full DKIM result to reuse during proof generation (Phase 2 optimization)
   try {
-    dkimResult = await verifyDKIMSignature(emlContent, undefined, undefined, true);
+    dkimResult = await verifyWithSignerFallback(emlContent, (raw, domain) =>
+      verifyDKIMSignature(raw as string, domain, undefined, true)
+    );
     // Convert Buffers to strings for storage
     dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');
     dkimCanonicalizedBody = dkimResult.body.toString('utf-8');

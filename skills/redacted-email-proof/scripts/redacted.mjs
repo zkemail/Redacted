@@ -175,12 +175,47 @@ export function readEmail(file) {
 const decodeB64 = (s) =>
   Buffer.from(String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/"), "base64");
 
+// Unique d= domains of the DKIM-Signature headers (mirrors src/utils/dkimSigner.ts).
+export function signatureDomains(raw) {
+  const text = Buffer.from(raw).toString("latin1");
+  const headerEnd = text.search(/\r?\n\r?\n/);
+  const headers = (headerEnd >= 0 ? text.slice(0, headerEnd) : text).replace(/\r?\n[ \t]+/g, " ");
+  const out = [];
+  for (const line of headers.split(/\r?\n/)) {
+    if (!/^dkim-signature\s*:/i.test(line)) continue;
+    const d = /(?:^|[;:\s])d\s*=\s*([^;\s]+)/i.exec(line.slice(line.indexOf(":") + 1))?.[1]?.toLowerCase();
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+// REASON: verifyDKIMSignature(email) only looks for a signature from the From: domain. ESP- or
+// subdomain-signed mail (ccsend.com, email.airbnb.com, …) failed although a valid signature
+// exists. Try the From domain, then every d=. verify prints d= and warns on From/d= mismatch.
+export async function verifyWithSignerFallback(raw, verify, domain) {
+  if (domain) return verify(raw, domain);
+  let firstError;
+  try {
+    return await verify(raw, undefined);
+  } catch (e) {
+    firstError = e;
+  }
+  for (const d of signatureDomains(raw)) {
+    try {
+      return await verify(raw, d);
+    } catch {
+      /* try the next signature */
+    }
+  }
+  throw firstError;
+}
+
 async function dkimOf(emailBuf, domain) {
   const { zk } = await lib();
   try {
     // (email, domain, enableSanitization, fallbackToZKEmailDNSArchive) — the archive fallback
     // lets old emails prove after the sender rotated its DKIM key.
-    return await zk.verifyDKIMSignature(emailBuf, domain, true, true);
+    return await verifyWithSignerFallback(emailBuf, (raw, d) => zk.verifyDKIMSignature(raw, d, true, true), domain);
   } catch (e) {
     die(
       `DKIM verification failed: ${e.message}\n` +
