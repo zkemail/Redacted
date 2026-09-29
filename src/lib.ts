@@ -12,6 +12,7 @@ import { bnToLimbStrArray } from "@mach-34/noir-bignum-paramgen";
 import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
+import { decodeMaskedBytes } from "./utils/proofOutputs";
 
 /**
  * Circuit versions
@@ -340,14 +341,6 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
     }
     const prefix = prefixLength(layout.version);
 
-    const hexFieldToByte = (hexField: unknown): number => {
-      if (typeof hexField === "string") {
-        const hex = hexField.startsWith("0x") ? hexField.slice(2) : hexField;
-        return parseInt(hex.slice(-2), 16);
-      }
-      if (typeof hexField === "number") return hexField & 0xff;
-      return 0;
-    };
     const hexToUint8Array = (hexField: unknown): Uint8Array => {
       if (typeof hexField !== "string") return new Uint8Array(0);
       const hex = hexField.startsWith("0x") ? hexField.slice(2) : hexField;
@@ -359,43 +352,16 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
     const publicKeyHash = hexToUint8Array(proof.publicInputs[0]);
     const emailNullifier = hexToUint8Array(proof.publicInputs[prefix - 1]);
 
-    const headerBytes = new Uint8Array(layout.maxHeaderLength);
-    for (let i = 0; i < layout.maxHeaderLength; i++) {
-      headerBytes[i] = hexFieldToByte(proof.publicInputs[prefix + i]);
-    }
-    const bodyStart = prefix + layout.maxHeaderLength;
-    const bodyBytes = new Uint8Array(layout.maxBodyLength);
-    for (let i = 0; i < layout.maxBodyLength; i++) {
-      bodyBytes[i] = hexFieldToByte(proof.publicInputs[bodyStart + i]);
-    }
-
-    // Trim the circuit's zero padding and the SHA-256 padding (0x80, zeros, 8-byte length) that
-    // the DKIM hashing carries along, leaving only the email content.
-    const trimSha256Padding = (bytes: Uint8Array): Uint8Array => {
-      let end = bytes.length;
-      while (end > 0 && bytes[end - 1] === 0) end--;
-      for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
-        if (bytes[i] === 0x80) {
-          let looksLikePadding = true;
-          for (let j = i + 1; j < end; j++) {
-            if (bytes[j] !== 0 && j < end - 8) {
-              looksLikePadding = false;
-              break;
-            }
-          }
-          if (looksLikePadding) {
-            end = i;
-            break;
-          }
-        }
-      }
-      return bytes.slice(0, end);
-    };
+    const { header, body } = decodeMaskedBytes(proof.publicInputs, {
+      prefix,
+      maxHeaderLength: layout.maxHeaderLength,
+      maxBodyLength: layout.maxBodyLength,
+    });
 
     const decoder = new TextDecoder("utf-8", { fatal: false });
     return {
-      maskedHeader: decoder.decode(trimSha256Padding(headerBytes)),
-      maskedBody: decoder.decode(trimSha256Padding(bodyBytes)),
+      maskedHeader: decoder.decode(header),
+      maskedBody: decoder.decode(body),
       publicKeyHash,
       emailNullifier,
       version: layout.version,

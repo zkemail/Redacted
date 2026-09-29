@@ -411,7 +411,7 @@ function render(s, mask) {
 // ---------------------------------------------------------------------------------------------
 // proof decoding + DKIM key binding
 
-function outputsOf(publicInputs, prefix, maxHeaderLength) {
+export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const byte = (x) => parseInt(String(x).slice(-2), 16);
   const bytes = publicInputs.slice(prefix).map(byte);
   const trim = (arr) => {
