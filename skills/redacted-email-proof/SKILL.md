@@ -54,9 +54,19 @@ the smallest tier that fits (RSA 1024- or 2048-bit keys):
 |---|---|---|---|
 | small | 2,048 B | 4,096 B | seconds, ~2 GB RAM |
 | mid | 2,048 B | 8,448 B | seconds, ~3 GB RAM |
-| large | 4,096 B | 49,152 B | ~1 min on 18 cores (longer on fewer), **~7 GB RAM** |
+| large | 4,096 B | 48,000 B | ~1 min on 18 cores (longer on fewer), **~7 GB RAM** |
 
 The large-tier figures were measured on a 34 KB PayPal receipt: 58 s, 6.6 GB peak for the native `bb`.
+
+**Quoted-printable emails** (most HTML email: `=3D`, `=E2=82=AC`, soft line breaks) are shown
+**decoded** by `inspect`, the preview, `verify` and the website. `--hide` and `--reveal` match
+the decoded text and mask exactly the encoded bytes it came from. The proof itself covers the
+raw signed bytes; decoding them is a fixed public step anyone can repeat, so no special circuit
+is needed.
+
+DKIM signatures from a domain other than `From:` (ESPs like ccsend.com, subdomains like
+email.airbnb.com) and `c=simple` header canonicalization are both supported. `verify` prints the
+signing `d=` and warns when it isn't the `From:` domain.
 
 The website can prove small and mid in a browser. **Large is CLI-only**, but its proofs verify
 on the website like any other.
@@ -141,7 +151,7 @@ it to the sender's domain.
 
 - `DKIM verification failed`: the file isn't the original raw message (see step 1), or the key was
   rotated and isn't in the archive. Try a newer email.
-- `canonical body is N bytes`: the email is longer than the large tier (49,152-byte body,
+- `canonical body is N bytes`: the email is longer than the large tier (48,000-byte body,
   4,096-byte header). Pick a shorter or plain-text email.
 - Out of memory: the large tier needs about 7 GB free. Close other programs or set
   `REDACTED_THREADS=4`.

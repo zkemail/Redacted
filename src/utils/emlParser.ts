@@ -1,6 +1,7 @@
 import PostalMime, { type Address } from 'postal-mime';
 import { verifyDKIMSignature } from '@zk-email/zkemail-nr';
 import { verifyWithSignerFallback } from './dkimSigner';
+import { bodyViewFor } from './qp';
 
 export interface EmailFieldRange {
   rawStart: number;
@@ -201,7 +202,8 @@ export async function parseEmlFile(emlContent: string): Promise<ParsedEmail> {
     );
     // Convert Buffers to strings for storage
     dkimCanonicalizedHeaders = dkimResult.headers.toString('utf-8');
-    dkimCanonicalizedBody = dkimResult.body.toString('utf-8');
+    // quoted-printable bodies are shown and masked DECODED (see bodyViewFor)
+    dkimCanonicalizedBody = bodyViewFor(dkimResult.body).text;
   } catch (error) {
     console.warn('[DKIM] Verification failed during parsing:', error);
     // Continue without canonicalized headers/body - will fall back to position-based mapping

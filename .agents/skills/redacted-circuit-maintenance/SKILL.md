@@ -39,6 +39,16 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
   lengths. Keep it. The regression test is `yarn test` (tests/soundness.test.ts, which fails
   without it). It costs about 4 gates per byte, and the large tier is at 98% of 2^22, so re-measure
   before adding any per-byte logic.
+- **Quoted-printable is decoded in the display layer, NOT in the circuit.** An in-circuit decode
+  variant (commit b9791be) cost ~55 gates/byte: QP mid went to 2^21, QP large to 2^23, and the
+  large compile OOM'd at 20.3 GB. It added no soundness, because decoding is a public function of
+  the proven raw bytes. What matters is mapping decoded-text masks to the exact raw bytes
+  (`viewMaskToRawMask`); the old search-based UI mapping silently leaked QP text.
+- **c=simple / folded DKIM fields** are supported by the vendored zkemail.nr patches, and the
+  whole field is range-checked up to 1024 bytes. Still unsupported: a bh= value folded mid-value
+  (Fastmail), which needs whitespace-skipping in `get_body_hash`.
+- **Large tier budget:** 48,000-byte body at 4,126,238 gates (98.4% of 2^22) after the c=simple
+  hardening. Anything per-byte added to large spills it to 2^23 (twice the proving cost).
 - **Key hash = two fields.** v2 outputs `[poseidon(modulus), poseidon(redc)]`. Checking only the
   modulus hash reopens the Veridise forgery (zkemail.nr #62).
 - **CRS cache (browser).** bb.js 5 fails when IndexedDB `g1Data` holds *more* points than

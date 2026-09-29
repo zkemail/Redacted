@@ -41,7 +41,7 @@ $R verify "https://redacted.zk.email/verify?id=…"       # proof check + DKIM k
 ```
 
 - It uses the same circuits as the site: pinned by commit, and each artifact and verification key is checked against its sha256 before use.
-- It proves emails with bodies up to **49,152 bytes**. The "large" tier is CLI-only; bodies over 8,448 bytes need about 7 GB of RAM and about a minute on a recent laptop.
+- It proves emails with bodies up to **48,000 bytes**. The "large" tier is CLI-only; bodies over 8,448 bytes need about 7 GB of RAM and about a minute on a recent laptop.
 - `publish` sends only `{publicInputs, proof}`. The raw email and the mask arrays are never sent.
 - `verify` also checks that the proof's DKIM public-key hash matches the key published in DNS (or in [archive.zk.email](https://archive.zk.email)) for the revealed `d=`/`s=`. The web verify page doesn't do that check yet.
 - Agents that fetch the site find the skill through `/llms.txt`, a `<link rel="alternate">` to `SKILL.md`, and a static block in `index.html`. Humans see it in the "For AI agents" section on the home page.
@@ -93,7 +93,7 @@ selects the smallest circuit that fits your email:
 |---------|---------|-------------------|----------|------------------------|
 | `email_mask_{1024,2048}_small` | 1024 / 2048-bit | 2 KB | 4 KB | browser or CLI |
 | `email_mask_{1024,2048}_mid` | 1024 / 2048-bit | 2 KB | 8.4 KB | browser or CLI |
-| `email_mask_{1024,2048}_large` | 1024 / 2048-bit | 4 KB | 48 KB | CLI only (~7 GB RAM, ~1 min) |
+| `email_mask_{1024,2048}_large` | 1024 / 2048-bit | 4 KB | 48,000 B | CLI only (~7 GB RAM, ~1 min) |
 
 Verification uses precomputed verification keys (`src/circuit/target/vk/`), so it takes seconds in
 the browser for every tier.

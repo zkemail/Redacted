@@ -41,6 +41,7 @@ export default function VerifyPage() {
     date: string;
   } | null>(null);
   const [maskedBody, setMaskedBody] = useState<string>('');
+  const [bodyDecodedFromQp, setBodyDecodedFromQp] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   useEffect(() => {
@@ -166,6 +167,7 @@ export default function VerifyPage() {
 
         // Store the masked body
         setMaskedBody(maskedData.maskedBody);
+        setBodyDecodedFromQp(maskedData.bodyDecodedFromQp);
 
       } catch (err) {
         console.error("Error loading verification data:", err);
@@ -339,6 +341,12 @@ export default function VerifyPage() {
 
             {/* Body Section */}
             <div className="p-6">
+              {bodyDecodedFromQp && (
+                <p className="text-xs text-[#666] mb-3">
+                  Shown decoded from quoted-printable. The proof covers the encoded bytes; decoding
+                  them is a fixed public step anyone can repeat.
+                </p>
+              )}
               <div className="prose max-w-none">
                 <MaskedText
                   text={maskedBody}

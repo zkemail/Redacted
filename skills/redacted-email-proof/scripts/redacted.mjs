@@ -438,6 +438,11 @@ export function buildMasks(dkim, opts) {
 // preview stays readable in a terminal or an agent's context window.
 const compact = (s) => s.replace(new RegExp(`${BLOCK}{12,}`, "g"), (m) => `${BLOCK}×${m.length}`);
 
+function renderDecoded(s, mask) {
+  const bytes = Buffer.from(s, "latin1").map((v, i) => (mask[i] ? v : 0));
+  return compact(displayDecodeMasked(bytes).toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
+}
+
 function render(s, mask) {
   // Same bytes the proof will publish (hidden → 0x00), keeping line breaks so the preview stays readable.
   const bytes = Buffer.from(s, "latin1").map((v, i) => (mask[i] || v === 0x0d || v === 0x0a ? v : 0));
@@ -485,7 +490,9 @@ export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const header = latin1(headerBytes.slice(0, headerLen));
   const body = latin1(bodyBytes.slice(0, bodyLen));
   const pretty = (s) => compact(Buffer.from(s, "latin1").toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
-  return { header, body, headerText: pretty(header), bodyText: pretty(body) };
+  const qpBody = hasQuotedPrintablePart(Buffer.from(body, "latin1"));
+  const bodyText = qpBody ? pretty(displayDecodeMasked(Buffer.from(body, "latin1")).toString("latin1")) : pretty(body);
+  return { header, body, headerText: pretty(header), bodyText, bodyDecodedFromQp: qpBody };
 }
 
 // REASON: noir-bignum >= v0.9 (used by the v2 circuits) defines the Barrett parameter as
@@ -499,6 +506,48 @@ function redcLimbsV2(bignum, modulus, keyBits) {
   const redc = (1n << (2n * BigInt(keyBits) + BARRETT_REDUCTION_OVERFLOW_BITS)) / modulus;
   return bignum.bnToLimbStrArray(redc);
 }
+
+// Quoted-printable decoding for DISPLAY: "=XX" (hex, either case) -> byte, "=\r\n" -> removed,
+// anything else unchanged. The proof always covers the raw signed bytes; decoding them is a
+// public step (proving it in-circuit added no soundness and cost ~55 gates/byte). Masks are
+// placed on the raw bytes by the QP-aware matching in buildMasks. Mirrors src/utils/qp.ts.
+const hexVal = (c) => (c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 55 : c >= 0x61 && c <= 0x66 ? c - 87 : -1);
+export function qpDecode(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x3d && i + 2 < bytes.length) {
+      if (bytes[i + 1] === 0x0d && bytes[i + 2] === 0x0a) {
+        i += 2;
+        continue;
+      }
+      const h1 = hexVal(bytes[i + 1]), h2 = hexVal(bytes[i + 2]);
+      if (h1 >= 0 && h2 >= 0) {
+        out.push(h1 * 16 + h2);
+        i += 2;
+        continue;
+      }
+    }
+    out.push(bytes[i]);
+  }
+  return Buffer.from(out);
+}
+// Decode a masked raw body (0x00 = hidden) for display; an escape with a hidden byte -> one 0x00.
+export function displayDecodeMasked(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === 0x3d && i + 2 < bytes.length) {
+      const n1 = bytes[i + 1], n2 = bytes[i + 2];
+      if (n1 === 0x0d && n2 === 0x0a) { i += 2; continue; }
+      const h1 = hexVal(n1), h2 = hexVal(n2);
+      if (h1 >= 0 && h2 >= 0) { out.push(h1 * 16 + h2); i += 2; continue; }
+      if ((n1 === 0 || h1 >= 0) && (n2 === 0 || h2 >= 0) && (n1 === 0 || n2 === 0)) { out.push(0); i += 2; continue; }
+    }
+    out.push(b);
+  }
+  return Buffer.from(out);
+}
+export const hasQuotedPrintablePart = (body) => /content-transfer-encoding:\s*quoted-printable/i.test(Buffer.from(body).toString("latin1"));
 
 // Locate the last DKIM-Signature field (any case, folded or not) and its bh= value.
 // Mirrors src/utils/dkimFields.ts. REASON: zkemail-nr's getHeaderSequence can't find a c=simple
@@ -637,6 +686,8 @@ async function checkKeyBinding(publicInputs, headerText, circuit) {
 
 async function cmdInspect(file, opts) {
   const dkim = await dkimOf(readEmail(file), opts.domain);
+  const qp = hasQuotedPrintablePart(dkim.body);
+  const shown = qp ? qpDecode(dkim.body) : Buffer.from(dkim.body);
   const c = pickCircuit(dkim.modulusLength, dkim.headers.length, dkim.body.length);
   const lines = headerLines(lat1(dkim.headers));
   const info = {
@@ -647,29 +698,36 @@ async function cmdInspect(file, opts) {
     sanitization: dkim.appliedSanitization || null,
     headerBytes: dkim.headers.length,
     bodyBytes: dkim.body.length,
+    bodyView: qp ? "quoted-printable (shown decoded; --hide/--reveal match decoded text)" : "raw",
     circuit: c.name,
     circuitLimits: { maxHeaderBytes: c.maxHeaderLength, maxBodyBytes: c.maxBodyLength },
     signedHeaders: lines.map((l) => l.name),
   };
   if (opts.json) {
-    console.log(JSON.stringify({ ...info, header: lat1(dkim.headers), body: lat1(dkim.body) }, null, 2));
+    console.log(JSON.stringify({ ...info, header: lat1(dkim.headers), body: lat1(shown) }, null, 2));
     return;
   }
   console.log(JSON.stringify(info, null, 2));
   console.log("\n----- signed header (DKIM-canonical) -----\n" + Buffer.from(dkim.headers).toString("utf8").replace(/\r\n/g, "\n"));
-  console.log("----- body (DKIM-canonical; masks apply to these bytes) -----\n" + Buffer.from(dkim.body).toString("utf8").replace(/\r\n/g, "\n"));
+  console.log(
+    `----- body (${qp ? "decoded from quoted-printable for reading; --hide/--reveal match this text" : "DKIM-canonical; masks apply to these bytes"}) -----\n` +
+      shown.toString("utf8").replace(/\r\n/g, "\n"),
+  );
 }
 
 async function cmdProve(file, opts) {
   const emailBuf = readEmail(file);
   const dkim = await dkimOf(emailBuf, opts.domain);
+  const qp = hasQuotedPrintablePart(dkim.body);
   const c = pickCircuit(dkim.modulusLength, dkim.headers.length, dkim.body.length);
   const m = buildMasks(dkim, opts);
 
   log(`DKIM ok: d=${dkim.signingDomain} s=${dkim.selector} (${dkim.modulusLength}-bit) → circuit ${c.name}`);
   log(`\n===== what the proof will reveal (${BLOCK} = hidden) =====\n`);
   log(render(m.h, m.headerMask));
-  log("\n" + render(m.b, m.bodyMask));
+  // quoted-printable bodies are previewed decoded, exactly as the verify page will show them
+  log("\n" + (qp ? renderDecoded(m.b, m.bodyMask) : render(m.b, m.bodyMask)));
+  if (qp) log("(body shown decoded from quoted-printable; the proof covers the encoded bytes)");
   log("===== end preview =====\n");
   for (const w of m.warnings) log(`warning: ${w}`);
   const hiddenH = m.headerMask.filter((x) => !x).length;

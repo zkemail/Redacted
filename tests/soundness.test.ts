@@ -58,6 +58,7 @@ function syntheticEmail() {
     dkim_header_sequence: { index: String(dkimAt), length: String(header.length - dkimAt) },
     header_mask: Array(H).fill(true),
     body_mask: Array(B).fill(true),
+    decoded_body: Array(B).fill("0"), // only read by "_qp" circuits
   };
   return { header, body, inputs };
 }

@@ -14,6 +14,7 @@ import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
 import { decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
 import { dkimFieldSequence } from "./utils/dkimFields";
+import { bodyViewFor, viewMaskToRawMask, displayDecodeMasked, looksQuotedPrintable } from "./utils/qp";
 
 /**
  * Circuit versions
@@ -121,10 +122,10 @@ export function clearCircuitCache(): void {
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
 
 // CRS (SRS) points a Barretenberg instance loads. Proving needs at least the circuit's dyadic
-// size: 2^19 for small (≈505k gates), 2^20 for mid (≈818k gates). Verifying from a VK needs
+// size: 2^20 for small/mid (≈564k / 900k gates) and QP small, 2^21 for QP mid (≈1.4M gates). Verifying from a VK needs
 // almost none, but bb.js 5 downloads the compressed CRS in 2^17-point (4 MB) chunks and rejects
 // any other size ("compressed points_buf size … must be a positive multiple of 4194304").
-const PROVE_SRS_POINTS = 2 ** 20;
+const PROVE_SRS_POINTS = 2 ** 21;
 const VERIFY_SRS_POINTS = 2 ** 17;
 
 // REASON: bb.js 5 caches the CRS in IndexedDB under "g1Data" and passes the cached buffer
@@ -223,6 +224,9 @@ export const handleGenerateProof = async (
     );
   }
 
+  // The UI's body mask is per character of the displayed body, which is decoded for
+  // quoted-printable emails (utils/qp.ts). Map it to the raw signed bytes the circuit masks.
+  const bodyByteMask = viewMaskToRawMask(bodyViewFor(dkimResult.body), bodyMask);
   const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);
   const circuit = await loadCircuit(config);
 
@@ -238,7 +242,7 @@ export const handleGenerateProof = async (
   for (let i = seq.index; i < seq.index + 14; i++) lowered[i] = headerText.charCodeAt(i) | 0x20;
   const inputs = await generateEmailVerifierInputsFromDKIMResult({ ...dkimResult, headers: Buffer.from(lowered) }, {
     headerMask: pad(headerMask, config.maxHeaderLength),
-    bodyMask: pad(bodyMask, config.maxBodyLength),
+    bodyMask: pad(bodyByteMask, config.maxBodyLength),
     maxHeadersLength: config.maxHeaderLength,
     maxBodyLength: config.maxBodyLength,
   });
@@ -349,6 +353,7 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
   publicKeyHash: Uint8Array;
   emailNullifier: Uint8Array;
   version: CircuitVersion;
+  bodyDecodedFromQp: boolean;
 } | null {
   try {
     const layout = candidateCircuits(proof)[0];
@@ -376,9 +381,12 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
     });
 
     const decoder = new TextDecoder("utf-8", { fatal: false });
+    // Display-only decoding of the proven raw bytes (quoted-printable is a public function of them).
+    const bodyDecodedFromQp = looksQuotedPrintable(body);
     return {
       maskedHeader: decoder.decode(header),
-      maskedBody: decoder.decode(body),
+      maskedBody: decoder.decode(bodyDecodedFromQp ? displayDecodeMasked(body) : body),
+      bodyDecodedFromQp,
       publicKeyHash,
       emailNullifier,
       version: layout.version,
