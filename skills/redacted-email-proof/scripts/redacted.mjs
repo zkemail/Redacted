@@ -34,7 +34,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
 // and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
 // could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
-const CIRCUIT_REF = "68bf94bba4b62f88e6028dc911d1d303acb343f4";
+const CIRCUIT_REF = "6804aac1be4b260ff4c97e86fec88c6b98ffff04";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
@@ -51,6 +51,9 @@ const V2 = {
     { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_1024_large.json",
       sha256: "a9b2fe1a267e3efa02b5abf845a5f71d4da49e240133712abd25a54ba84e7b6a",
       vkSha256: "5ab69124e1b214a44cfead77ed2984b9bcdc0274b41c3e8e40525566259eb574" },
+    { name: "email_mask_1024_xl", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 100352, file: "email_mask_1024_xl.json",
+      sha256: "352778186ad753f11b1f330f5cd6170a5e66db13fe6bc980221fc5c39ba9cf01",
+      vkSha256: "7c7e07e2940f543febf01568b298dc97f52fdd97ebda32959f040bdf99ec7182" },
     { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
       sha256: "b042ba6f85e3b574bc87c57b29afacaad23a6c693fd53609a58e93b1b15b30b8",
       vkSha256: "0f8f33a5ebcb91e5b30690636dbc32c7cb3d9c7449252e0eb4a772df2d36e306" },
@@ -60,6 +63,9 @@ const V2 = {
     { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_2048_large.json",
       sha256: "fb2e6d153bfecdf2dbe2e57ee9a358160a85e2b2ce185af19b947415d06dd02a",
       vkSha256: "b12ee63a85ee9fe8bcd52cb773e632e1a14591984aa5bb82330478573d7b3b99" },
+    { name: "email_mask_2048_xl", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 100352, file: "email_mask_2048_xl.json",
+      sha256: "d1971aee562b8d1aa78db5a458b54ce7b22c13411d6d9daf3f46c435f14daf96",
+      vkSha256: "9c07876c729e5e56bc30b6f7c18e254202415e4e7c22bdc0ff94cb5daf62ac81" },
   ],
 };
 const V1 = {
@@ -206,6 +212,22 @@ function pickCircuit(keyBits, headerLen, bodyLen) {
 }
 
 const sha256hex = (b) => createHash("sha256").update(b).digest("hex");
+
+// REASON: bb.js 5's native backend waits a hardcoded 5 s for the spawned `bb` to open its socket
+// ("Timeout waiting for bb socket connection"). On a busy or slow machine that fails spuriously
+// (seen at load average ~250 while proving the XL tier), so retry a few times with backoff
+// before giving up.
+async function newBarretenberg(bb, opts, attempts = 4) {
+  for (let i = 1; ; i++) {
+    try {
+      return await bb.Barretenberg.new(opts);
+    } catch (e) {
+      if (i >= attempts || !/socket/i.test(String(e?.message))) throw e;
+      log(`bb did not start in time (attempt ${i}/${attempts}); retrying…`);
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
+}
 
 // Download (once) and cache a pinned artifact; refuses anything whose sha256 doesn't match.
 async function fetchPinned(set, relPath, sha256, label) {
@@ -626,16 +648,21 @@ async function cmdProve(file, opts) {
   inputs.pubkey.redc = redcLimbsV2(bignum, dkim.publicKey, dkim.modulusLength);
   const threads = Number(process.env.REDACTED_THREADS) || Math.max(1, os.cpus().length);
   const large = c.maxBodyLength > 8448;
+  const xl = c.maxBodyLength > 49152;
   log(`Generating witness…`);
   const t0 = Date.now();
   const { witness } = await new noir.Noir(circuit).execute(inputs);
   log(
     `Proving with UltraHonk (${threads} threads; ` +
-      (large ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…` : `typically under a minute, ~2 GB RAM)…`),
+      (xl
+        ? `XL tier: ~2-4 min on 16+ cores, longer on fewer, ~8.5 GB RAM)…`
+        : large
+          ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…`
+          : `typically under a minute, ~2 GB RAM)…`),
   );
   // In Node, bb.js 5 runs the native bb binary it ships (no 4 GB WebAssembly memory cap), which is
   // what makes the 48 KB-body tier provable at all.
-  const api = await bb.Barretenberg.new({ threads });
+  const api = await newBarretenberg(bb, { threads });
   let proof;
   try {
     proof = await new bb.UltraHonkBackend(circuit.bytecode, api).generateProof(witness);
@@ -719,7 +746,7 @@ async function verifyWith(c, proof) {
   try {
     if (c.set.version === 2) {
       // v2: VK-only verification — no circuit download, milliseconds even for the large tier
-      const api = await bb.Barretenberg.new({ threads: 1 });
+      const api = await newBarretenberg(bb, { threads: 1 });
       try {
         return await new bb.UltraHonkVerifierBackend(api).verifyProof({ ...proof, verificationKey: await loadVk(c) });
       } finally {
