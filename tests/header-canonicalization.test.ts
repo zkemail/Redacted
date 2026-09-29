@@ -36,7 +36,6 @@ function inputsFor(headerText: string, body: Buffer, seq: { index: number; lengt
     dkim_header_sequence: { index: String(seq.index), length: String(seq.length) },
     header_mask: Array(H).fill(true),
     body_mask: Array(B).fill(true),
-    decoded_body: Array(B).fill("0"), // only read by "_qp" circuits
   };
 }
 const execute = async (inputs: object) => (await new Noir(circuit).execute(inputs as never)).returnValue as unknown as [string[], string[], string[]];
