@@ -120,9 +120,9 @@ Exit codes:
 - 0: the proof is valid and the key matches.
 - 2: the proof is invalid.
 - 3: the proof is valid but the key isn't matched (treat the sender as unproven).
-- 4: a **legacy v1 2048-bit proof** (made before the 2026-09 upgrade). Those circuits didn't bind
-  the RSA reduction parameter (zkemail.nr PR #62), so even a key match can't rule out a forgery.
-  Ask for a new proof.
+- 4: a **legacy v1 proof** (made before the 2026-09 upgrade). Don't rely on it; ask for a new
+  proof. Those circuits published bytes past the signed length, so a prover could append unsigned
+  text. 2048-bit v1 also didn't bind the RSA reduction parameter (zkemail.nr PR #62).
 
 A valid proof alone only shows that *some* RSA key signed the content; the key match is what ties
 it to the sender's domain.

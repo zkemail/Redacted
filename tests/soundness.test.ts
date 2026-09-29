@@ -136,3 +136,21 @@ test("committed verification key verifies an honest proof of the committed circu
     await api.destroy();
   }
 });
+
+test("legacy v1 decoding is exact, including lengths ≡ 16 (mod 32)", () => {
+  // v1 circuits published [key hash, nullifier, ...storage] where storage = sha256Pad(content).
+  const H1 = 2048, B1 = 4096;
+  for (const n of [15, 16, 48, 49, 80, 176, 200]) {
+    const header = Buffer.from("h".repeat(n - 1) + ":");
+    const body = Buffer.from("b".repeat(n + 32 - 1) + "\n");
+    const fields = (bytes: Buffer, max: number) =>
+      [...sha256Pad(new Uint8Array(bytes), max)[0]].map((b) => "0x" + b.toString(16).padStart(64, "0"));
+    const publicInputs = ["0x01", "0x02", ...fields(header, H1), ...fields(body, B1)];
+    const site = decodeMaskedBytes(publicInputs, { prefix: 2, maxHeaderLength: H1, maxBodyLength: B1 });
+    assert.equal(Buffer.from(site.header).toString("latin1"), header.toString("latin1"), `site header n=${n}`);
+    assert.equal(Buffer.from(site.body).toString("latin1"), body.toString("latin1"), `site body n=${n}`);
+    const cli = outputsOf(publicInputs, 2, H1);
+    assert.equal(cli.header, header.toString("latin1"), `cli header n=${n}`);
+    assert.equal(cli.body, body.toString("latin1"), `cli body n=${n}`);
+  }
+});

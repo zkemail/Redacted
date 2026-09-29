@@ -31,15 +31,16 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // hashes together (scripts/compile-circuits.ts prints them).
 //
 // v2 = Noir 1.0.0-rc.3 + Barretenberg 5.0.0 + zkemail.nr v2 (redc bound into the key hash).
-// v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade:
-// their 2048-bit key hash does not bind redc (zkemail.nr PR #62), so they are reported as legacy.
-const CIRCUIT_REF = "d2bb9ca2f45b5df9d4114e9d92f992f67a61d0d8";
+// v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
+// and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
+// could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
+const CIRCUIT_REF = "cc7cdc453b9b9a7ef8d6ea2978593137df215e4a";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
   ref: CIRCUIT_REF,
   base: process.env.REDACTED_CIRCUIT_BASE || `${GH_RAW(CIRCUIT_REF)}/target`,
-  prefix: 3, // [modulus hash, redc hash, nullifier]
+  prefix: 5, // [modulus hash, redc hash, nullifier, header len, body len]
   circuits: [
     { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_1024_small.json",
       sha256: "bd822545674ceca2d32e51fc7b523a4cf7bd8490d4df1943cda378898ca53e1d",
@@ -411,27 +412,43 @@ function render(s, mask) {
 // ---------------------------------------------------------------------------------------------
 // proof decoding + DKIM key binding
 
+// v1 proofs carry no lengths: find the content end from the SHA-256 padding the input generator
+// leaves after it (0x80 at p, zeros, then the 64-bit bit-length 8·p at the end of that block).
+// REASON: the old "last 0x80 followed by zeros" heuristic picked the length field's own 0x80 byte
+// whenever len ≡ 16 (mod 32) and printed padding junk (tests/soundness.test.ts).
+function legacyContentLength(arr) {
+  for (let p = 0; p < arr.length; p++) {
+    if (arr[p] !== 0x80) continue;
+    const blockEnd = Math.ceil((p + 9) / 64) * 64;
+    if (blockEnd > arr.length) break;
+    let bits = 0n;
+    for (let k = blockEnd - 8; k < blockEnd; k++) bits = (bits << 8n) | BigInt(arr[k]);
+    if (bits === BigInt(p) * 8n && arr.slice(p + 1, blockEnd - 8).every((v) => v === 0)) return p;
+  }
+  let end = arr.length;
+  while (end > 0 && arr[end - 1] === 0) end--;
+  return end;
+}
+
+// Decode the masked header/body a proof publishes (0x00 = masked). v2 (prefix 5) commits to the
+// signed lengths and zeroes everything past them, so this is an exact slice.
 export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const byte = (x) => parseInt(String(x).slice(-2), 16);
   const bytes = publicInputs.slice(prefix).map(byte);
-  const trim = (arr) => {
-    let end = arr.length;
-    while (end > 0 && arr[end - 1] === 0) end--;
-    // strip SHA-256 padding (0x80 … length) that the circuit carries along
-    for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
-      if (arr[i] === 0x80 && arr.slice(i + 1, Math.max(i + 1, end - 8)).every((v) => v === 0)) {
-        end = i;
-        break;
-      }
-    }
-    return arr.slice(0, end);
-  };
-  const show = (arr) =>
-    Buffer.from(arr.map((v) => (v === 0 ? 0xff : v)))
-      .toString("latin1")
-      .replace(/\xff/g, "\u0000");
-  const header = show(trim(bytes.slice(0, maxHeaderLength)));
-  const body = show(trim(bytes.slice(maxHeaderLength)));
+  const headerBytes = bytes.slice(0, maxHeaderLength);
+  const bodyBytes = bytes.slice(maxHeaderLength);
+  let headerLen, bodyLen;
+  if (prefix === V2.prefix) {
+    headerLen = Number(BigInt(publicInputs[3]));
+    bodyLen = Number(BigInt(publicInputs[4]));
+    if (headerLen > headerBytes.length || bodyLen > bodyBytes.length) throw new Error("committed length exceeds circuit maximum");
+  } else {
+    headerLen = legacyContentLength(headerBytes);
+    bodyLen = legacyContentLength(bodyBytes);
+  }
+  const latin1 = (arr) => Buffer.from(arr).toString("latin1");
+  const header = latin1(headerBytes.slice(0, headerLen));
+  const body = latin1(bodyBytes.slice(0, bodyLen));
   const pretty = (s) => compact(Buffer.from(s, "latin1").toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
   return { header, body, headerText: pretty(header), bodyText: pretty(body) };
 }
@@ -741,13 +758,13 @@ async function cmdVerify(ref, opts) {
   const layout = circuitUsed ?? candidates[0];
   const outs = outputsOf(publicInputs, layout.set.prefix, layout.maxHeaderLength);
   const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.headerText, circuitUsed) : null;
-  // v1 2048-bit proofs never committed to redc, so a key match there does not rule out a forgery.
-  const legacyUnbound = Boolean(circuitUsed && circuitUsed.set.version === 1 && circuitUsed.keyBits === 2048);
+  // Every v1 proof is legacy: v1 could carry appended unsigned text, and 2048-bit v1 didn't bind redc.
+  const legacyUnbound = Boolean(circuitUsed && circuitUsed.set.version === 1);
   const result = {
     proofValid: Boolean(circuitUsed),
     circuit: circuitUsed?.name ?? null,
     circuitVersion: circuitUsed?.set.version ?? null,
-    legacyRedcUnbound: legacyUnbound,
+    legacy: legacyUnbound,
     dkimDomain: binding?.domain ?? null,
     dkimSelector: binding?.selector ?? null,
     keyMatches: binding?.matched ?? null,
@@ -762,8 +779,8 @@ async function cmdVerify(ref, opts) {
     console.log(`proof: ${result.proofValid ? "VALID" : "INVALID"}${circuitUsed ? ` (${circuitUsed.name}, circuit v${circuitUsed.set.version})` : ""}`);
     if (legacyUnbound)
       console.log(
-        "warning: LEGACY v1 2048-bit proof. That circuit did not bind the RSA reduction parameter (redc) into " +
-          "its key hash (zkemail.nr PR #62), so even a key match cannot rule out a forged proof. Ask for a v2 proof.",
+        "warning: LEGACY v1 proof. v1 circuits published bytes past the signed length, so a prover could append " +
+          "unsigned text; 2048-bit v1 also didn't bind the RSA redc parameter (zkemail.nr PR #62). Don't rely on it; ask for a v2 proof.",
       );
     if (circuitUsed) {
       console.log(

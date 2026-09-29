@@ -22,3 +22,7 @@ jobs:
 
       - name: Run TypeScript check
         run: yarn tsc --noEmit
+
+      # Circuit soundness + decoder tests (synthetic keys only; needs the committed artifacts)
+      - name: Run tests
+        run: yarn test

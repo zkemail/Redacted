@@ -20,30 +20,46 @@ const hexFieldToByte = (hexField: unknown): number => {
   return 0;
 };
 
-// Trim the circuit's zero padding and the SHA-256 padding (0x80, zeros, 8-byte length) that
-// the DKIM hashing carries along, leaving only the email content.
-function trimSha256Padding(bytes: Uint8Array): Uint8Array {
+/** Number of leading public fields in a v2 proof: modulus hash, redc hash, nullifier, lengths. */
+export const V2_PREFIX = 5;
+
+const fieldToNumber = (field: unknown): number => {
+  const n = BigInt(typeof field === "string" && !field.startsWith("0x") ? "0x" + field : String(field));
+  if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("length field out of range");
+  return Number(n);
+};
+
+// v1 proofs carry no lengths, so find where the content ends from the SHA-256 padding the input
+// generator leaves after it: 0x80 at the content length p, zeros, then the 64-bit bit-length
+// (8·p) at the end of that 64-byte block. Checking the length field makes this exact for
+// honest v1 outputs.
+// REASON: the old heuristic ("last 0x80 followed only by zeros") picked the length field's own
+// byte whenever len ≡ 16 (mod 32), because 8·len then ends in 0x80. That showed padding junk.
+// It can't detect text a prover appended after the padding; see the legacy warning.
+function legacyContentLength(bytes: Uint8Array): number {
+  for (let p = 0; p < bytes.length; p++) {
+    if (bytes[p] !== 0x80) continue;
+    const blockEnd = Math.ceil((p + 9) / 64) * 64;
+    if (blockEnd > bytes.length) break;
+    let bits = 0n;
+    for (let k = blockEnd - 8; k < blockEnd; k++) bits = (bits << 8n) | BigInt(bytes[k]);
+    if (bits !== BigInt(p) * 8n) continue;
+    let zeros = true;
+    for (let k = p + 1; k < blockEnd - 8 && zeros; k++) zeros = bytes[k] === 0;
+    if (zeros) return p;
+  }
+  // No padding found (e.g. it was masked): fall back to trimming trailing zeros.
   let end = bytes.length;
   while (end > 0 && bytes[end - 1] === 0) end--;
-  for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
-    if (bytes[i] === 0x80) {
-      let looksLikePadding = true;
-      for (let j = i + 1; j < end; j++) {
-        if (bytes[j] !== 0 && j < end - 8) {
-          looksLikePadding = false;
-          break;
-        }
-      }
-      if (looksLikePadding) {
-        end = i;
-        break;
-      }
-    }
-  }
-  return bytes.slice(0, end);
+  return end;
 }
 
-/** Raw masked header/body bytes (0x00 = masked) exactly as the proof commits to them. */
+/**
+ * Raw masked header/body bytes (0x00 = masked) exactly as the proof commits to them.
+ *
+ * v2 (prefix 5): the circuit publishes the signed header/body lengths and zeroes every byte past
+ * them, so decoding is an exact slice. v1: see legacyContentLength.
+ */
 export function decodeMaskedBytes(
   publicInputs: readonly unknown[],
   layout: OutputLayout
@@ -54,5 +70,14 @@ export function decodeMaskedBytes(
   const bodyStart = prefix + maxHeaderLength;
   const bodyBytes = new Uint8Array(maxBodyLength);
   for (let i = 0; i < maxBodyLength; i++) bodyBytes[i] = hexFieldToByte(publicInputs[bodyStart + i]);
-  return { header: trimSha256Padding(headerBytes), body: trimSha256Padding(bodyBytes) };
+  if (prefix === V2_PREFIX) {
+    const headerLen = fieldToNumber(publicInputs[3]);
+    const bodyLen = fieldToNumber(publicInputs[4]);
+    if (headerLen > maxHeaderLength || bodyLen > maxBodyLength) throw new Error("committed length exceeds circuit maximum");
+    return { header: headerBytes.slice(0, headerLen), body: bodyBytes.slice(0, bodyLen) };
+  }
+  return {
+    header: headerBytes.slice(0, legacyContentLength(headerBytes)),
+    body: bodyBytes.slice(0, legacyContentLength(bodyBytes)),
+  };
 }

@@ -99,15 +99,22 @@ Verification uses precomputed verification keys (`src/circuit/target/vk/`), so i
 the browser for every tier.
 
 **Security upgrade (2026-09).** The original circuits (Noir 1.0.0-beta.5, zkemail.nr
-v1.0.1-beta.5) had two problems:
+v1.0.1-beta.5) had three problems:
 1. Their 2048-bit DKIM key hash committed only to the RSA modulus, not the reduction parameter
    (`redc`), so a malicious prover could pick an arbitrary `redc` (Veridise finding, fixed in
    zkemail.nr PR #62).
 2. They were compiled with a Noir version affected by the 2026 Brillig/SSA advisories.
+3. `mask_text` published every byte of the header and body buffers, but SHA-256 and the RSA check
+   cover only the first `len` bytes. A prover could append unsigned text (for example a forged
+   `subject:` line or body sentence), and it would be displayed as signed content.
 
-v2 circuits output both hashes. The old artifacts are kept in `src/circuit/legacy-v1/` only so
-links made before the upgrade still verify, and the verify page labels 2048-bit legacy proofs as
-weaker evidence.
+v2 circuits output both key hashes plus the signed header and body lengths, and zero every byte
+past those lengths. `tests/soundness.test.ts` (`yarn test`) covers each fix. The old artifacts are
+kept in `src/circuit/legacy-v1/` only so links made before the upgrade still verify. The verify
+page labels **every** legacy proof as unreliable, because problem 3 applies to all of them.
+
+v2 public inputs: `[modulus hash, redc hash, nullifier, header len, body len, …header bytes,
+…body bytes]`.
 
 Rebuild with `NARGO_BIN=… BB_BIN=… yarn compile:circuits` (nargo 1.0.0-rc.3, bb 5.0.0). Then pin
 the CLI with `node scripts/pin-cli-circuits.mjs <commit>`.

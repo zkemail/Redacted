@@ -12,17 +12,20 @@ import { bnToLimbStrArray } from "@mach-34/noir-bignum-paramgen";
 import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
-import { decodeMaskedBytes } from "./utils/proofOutputs";
+import { decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
 
 /**
  * Circuit versions
  *
  * v2 (current): Noir 1.0.0-rc.3 + Barretenberg 5.0.0 + zkemail.nr v2. Public inputs are
- *   [modulus hash, redc hash, nullifier, ...header bytes, ...body bytes]. Verified against
- *   verification keys generated at build time (src/circuit/target/vk).
+ *   [modulus hash, redc hash, nullifier, header len, body len, ...header bytes, ...body bytes],
+ *   with every byte past the signed length zeroed. Verified against verification keys generated at
+ *   build time (src/circuit/target/vk).
  * v1 (legacy): Noir beta.5 + bb.js 0.84. Public inputs are [key hash, nullifier, ...]. Kept only
- *   so links created before the upgrade still verify. Its 2048-bit key hash does not bind the RSA
- *   reduction parameter (zkemail.nr PR #62), so the verify page labels those proofs as legacy.
+ *   so links created before the upgrade still verify. The verify page labels every v1 proof as
+ *   legacy, because:
+ *   - v1 published bytes past the signed length, so a prover could append unsigned text;
+ *   - its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
  *
  * The public-input count differs between every v1 and v2 tier, so the version is derived from
  * the proof's shape. It never needs to be trusted from metadata.
@@ -56,7 +59,7 @@ const V1_CIRCUITS: CircuitConfig[] = circuitConfigs.legacy.map((c) => ({
   browser: false,
 }));
 
-const prefixLength = (version: CircuitVersion) => (version === 2 ? 3 : 2);
+const prefixLength = (version: CircuitVersion) => (version === 2 ? V2_PREFIX : 2);
 const publicInputCount = (c: CircuitConfig) =>
   prefixLength(c.version) + c.maxHeaderLength + c.maxBodyLength;
 
@@ -275,8 +278,8 @@ export interface VerificationResult {
   circuit?: string;
   version?: CircuitVersion;
   keyBits?: number;
-  /** v1 2048-bit proofs: the key hash does not bind redc, so a forged proof cannot be ruled out */
-  legacyRedcUnbound?: boolean;
+  /** v1 proof: could carry appended unsigned text, and (2048-bit) the key hash doesn't bind redc */
+  legacy?: boolean;
 }
 
 async function verifyWith(c: CircuitConfig, proof: ProofData): Promise<boolean> {
@@ -308,7 +311,7 @@ export const handleVerifyProof = async (proof: ProofWithCircuit): Promise<Verifi
           circuit: c.name,
           version: c.version,
           keyBits: c.keyBits,
-          legacyRedcUnbound: c.version === 1 && c.keyBits === 2048,
+          legacy: c.version === 1,
         };
       }
     } catch (e) {
@@ -350,7 +353,7 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
     };
 
     const publicKeyHash = hexToUint8Array(proof.publicInputs[0]);
-    const emailNullifier = hexToUint8Array(proof.publicInputs[prefix - 1]);
+    const emailNullifier = hexToUint8Array(proof.publicInputs[layout.version === 2 ? 2 : 1]);
 
     const { header, body } = decodeMaskedBytes(proof.publicInputs, {
       prefix,

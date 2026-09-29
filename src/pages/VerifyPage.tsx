@@ -193,11 +193,12 @@ export default function VerifyPage() {
         verified: isValid,
         message: !isValid
           ? "Proof verification failed. The email content may have been tampered with."
-          : result.legacyRedcUnbound
-            // v1 2048-bit circuits did not bind the RSA reduction parameter into the key hash
-            // (zkemail.nr PR #62), so a valid legacy proof is weaker evidence than a v2 one.
-            ? "Proof verified, but it was made with the legacy circuit from before a 2026 security fix. " +
-              "Treat it as weaker evidence and ask the sender for a new proof."
+          : result.legacy
+            // v1 circuits published bytes past the signed length (a prover could append unsigned
+            // text) and, for 2048-bit keys, didn't bind redc. A valid v1 proof doesn't show
+            // that everything displayed was signed.
+            ? "Proof verified, but it was made with the legacy circuit from before a 2026 security fix, " +
+              "which could let a prover append unsigned text. Don't rely on it; ask the sender for a new proof."
             : "Proof verified successfully! The email content is authentic.",
       });
       if (isValid) {

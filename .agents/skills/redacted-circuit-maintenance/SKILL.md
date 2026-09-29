@@ -33,6 +33,12 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
   generates `2^(2k+4)`, which gives "Failed to solve brillig function" inside `__barrett_reduction`.
   lib.ts and the CLI override `inputs.pubkey.redc`. Verifiers must derive the expected redc hash
   with the same formula.
+- **Only publish signed bytes.** `mask_text` (zkemail.nr) outputs all N storage bytes, but
+  SHA-256 and RSA cover only `len`, so the tail is prover-controlled and could inject unsigned text.
+  `mask_signed_bytes` in main.nr zeroes everything at index ≥ len, and the circuit publishes both
+  lengths. Keep it. The regression test is `yarn test` (tests/soundness.test.ts, which fails
+  without it). It costs about 4 gates per byte, and the large tier is at 98% of 2^22, so re-measure
+  before adding any per-byte logic.
 - **Key hash = two fields.** v2 outputs `[poseidon(modulus), poseidon(redc)]`. Checking only the
   modulus hash reopens the Veridise forgery (zkemail.nr #62).
 - **CRS cache (browser).** bb.js 5 fails when IndexedDB `g1Data` holds *more* points than
@@ -54,3 +60,5 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
 - Headless browser: prove small and mid through `src/lib.ts`, and verify a large proof with fresh
   storage and with an oversized cached CRS.
 - Check that an old v1 link still verifies (legacy warning; CLI exit 4).
+- Run `yarn test`: soundness plus exact decoding. Any change to the circuit's outputs must keep
+  it green.
