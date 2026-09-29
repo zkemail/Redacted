@@ -23,6 +23,8 @@ export default function VerifyPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{
     verified: boolean;
+    /** Valid legacy (v1) proof: shown as a warning, never as authentic. */
+    legacy?: boolean;
     message: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +192,10 @@ export default function VerifyPage() {
       const isValid = result.valid;
 
       setVerificationStatus({
-        verified: isValid,
+        // REASON: a valid v1 proof may carry unsigned appended text, so it must not get the green
+        // banner or the "Authentic Mail" badge (PR #21 review).
+        verified: isValid && !result.legacy,
+        legacy: isValid && result.legacy,
         message: !isValid
           ? "Proof verification failed. The email content may have been tampered with."
           : result.legacy
@@ -282,12 +287,18 @@ export default function VerifyPage() {
               className={`mb-6 p-4 rounded-lg ${
                 verificationStatus.verified
                   ? "bg-green-50 border border-green-200"
-                  : "bg-red-50 border border-red-200"
+                  : verificationStatus.legacy
+                    ? "bg-amber-50 border border-amber-300"
+                    : "bg-red-50 border border-red-200"
               }`}
             >
               <p
                 className={`text-center font-medium ${
-                  verificationStatus.verified ? "text-green-800" : "text-red-800"
+                  verificationStatus.verified
+                    ? "text-green-800"
+                    : verificationStatus.legacy
+                      ? "text-amber-900"
+                      : "text-red-800"
                 }`}
               >
                 {verificationStatus.message}

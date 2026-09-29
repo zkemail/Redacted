@@ -168,3 +168,26 @@ test("CLI circuit pins match the committed artifacts and VKs", async () => {
     assert.equal(row[2], sha(`vk/${c.name}.vk`), `${c.name} VK pin is stale — run scripts/pin-cli-circuits.mjs`);
   }
 });
+
+test("CLI verify reports a proof with out-of-range length fields as INVALID (no crash)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { writeFileSync, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  // v2 small shape (5 + 2048 + 4096) with an absurd committed header length
+  const pi = Array(5 + H + B).fill("0x" + "0".repeat(64));
+  pi[3] = "0x" + (10n ** 12n).toString(16).padStart(64, "0");
+  const file = join(mkdtempSync(join(tmpdir(), "redacted-")), "hostile.json");
+  writeFileSync(file, JSON.stringify({ publicInputs: pi, proof: Array(100).fill(0) }));
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync("node", [join(ROOT, "skills/redacted-email-proof/scripts/redacted.mjs"), "verify", file, "--json"], {
+      cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, REDACTED_CACHE: join(tmpdir(), "redacted-test-cache") },
+    });
+  } catch (e) {
+    code = (e as { status: number }).status;
+    out = (e as { stdout: string }).stdout;
+  }
+  assert.equal(code, 2, `expected exit 2 (INVALID), got ${code}`);
+  assert.equal(JSON.parse(out).proofValid, false);
+});

@@ -34,7 +34,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
 // and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
 // could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
-const CIRCUIT_REF = "cc7cdc453b9b9a7ef8d6ea2978593137df215e4a";
+const CIRCUIT_REF = "68bf94bba4b62f88e6028dc911d1d303acb343f4";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
@@ -52,14 +52,14 @@ const V2 = {
       sha256: "a9b2fe1a267e3efa02b5abf845a5f71d4da49e240133712abd25a54ba84e7b6a",
       vkSha256: "5ab69124e1b214a44cfead77ed2984b9bcdc0274b41c3e8e40525566259eb574" },
     { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
-      sha256: "c820ff53b1fe87f411460f295d3ea1c5da6ce706bcabfa7183cf530369106ca8",
-      vkSha256: "f67fb9f8da435652c16b4b201139fadd052d4d4af42a48d3df579c4ee627bf49" },
+      sha256: "b042ba6f85e3b574bc87c57b29afacaad23a6c693fd53609a58e93b1b15b30b8",
+      vkSha256: "0f8f33a5ebcb91e5b30690636dbc32c7cb3d9c7449252e0eb4a772df2d36e306" },
     { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_2048_mid.json",
-      sha256: "de20ada30f30f4ed7d8ac0b57871506df2f8486e579ea44a4ae1304d7f955013",
-      vkSha256: "e261a202b90bde1f479cf85bb02fb9cdabbc7f3d8180bf5976a6d077ad4e9f6a" },
+      sha256: "84cbf2060a68781b086bbcc3cb7e9c3eabbddf9a0c61a4ccec1ac80b36bb5c13",
+      vkSha256: "24c00c224373f648b359214ea50e439eb4e11a46f2e0ea79d7d143f0e7b6db48" },
     { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_2048_large.json",
-      sha256: "ea85f515b23b4d23a9eb11e30d4e0edfcd42a60cffaa9fefcb1c5c8f348fc807",
-      vkSha256: "72a05f5c4260fc5f642b22b392a474d5af1e16132b944ae8151fdca019a75d05" },
+      sha256: "fb2e6d153bfecdf2dbe2e57ee9a358160a85e2b2ce185af19b947415d06dd02a",
+      vkSha256: "b12ee63a85ee9fe8bcd52cb773e632e1a14591984aa5bb82330478573d7b3b99" },
   ],
 };
 const V1 = {
@@ -756,7 +756,15 @@ async function cmdVerify(ref, opts) {
     }
   }
   const layout = circuitUsed ?? candidates[0];
-  const outs = outputsOf(publicInputs, layout.set.prefix, layout.maxHeaderLength);
+  // REASON: the length fields of an UNVERIFIED proof are attacker-controlled; decoding may throw
+  // (length > circuit max). Report INVALID instead of crashing. Verified proofs never throw here.
+  let outs;
+  try {
+    outs = outputsOf(publicInputs, layout.set.prefix, layout.maxHeaderLength);
+  } catch (e) {
+    if (circuitUsed) throw e;
+    outs = { header: "", body: "", headerText: "(undecodable)", bodyText: "(undecodable)" };
+  }
   const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.headerText, circuitUsed) : null;
   // Every v1 proof is legacy: v1 could carry appended unsigned text, and 2048-bit v1 didn't bind redc.
   const legacyUnbound = Boolean(circuitUsed && circuitUsed.set.version === 1);
