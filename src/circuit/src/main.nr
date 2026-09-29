@@ -1,8 +1,7 @@
 use sha256::sha256_var;
 use std::{collections::bounded_vec::BoundedVec, hash::pedersen_hash};
 use zkemail::{
-    dkim::RSAPubkey, headers::body_hash::get_body_hash, KEY_LIMBS_1024, KEY_LIMBS_2048, masking::mask_text,
-    Sequence,
+    dkim::RSAPubkey, headers::body_hash::get_body_hash, KEY_LIMBS_1024, KEY_LIMBS_2048, Sequence,
 };
 
 global MAX_EMAIL_HEADER_LENGTH: u32 = 2048;
@@ -24,7 +23,9 @@ global KEY_LIMBS: u32 = KEY_LIMBS_1024;
  *         0: Poseidon hash of the DKIM RSA modulus (root of trust; compare to the DNS key)
  *         1: Poseidon hash of the DKIM RSA reduction parameter (redc)
  *         2: Pedersen hash of DKIM signature (email nullifier)
- *         then the masked header bytes, then the masked body bytes
+ *         3: header length (bytes covered by the DKIM signature)
+ *         4: body length (bytes covered by the body hash)
+ *         then the masked header bytes, then the masked body bytes (every byte at index >= length is 0)
  *
  * REASON (outputs 0 and 1): zkemail.nr v2 binds redc into the key hash. Before that fix the 2048-bit
  * hash covered only the modulus, so a prover could pick an arbitrary redc and still match the real
@@ -39,7 +40,7 @@ fn main(
     dkim_header_sequence: Sequence,
     header_mask: [bool; MAX_EMAIL_HEADER_LENGTH],
     body_mask: [bool; MAX_EMAIL_BODY_LENGTH],
-) -> pub ([Field; 3], [u8; MAX_EMAIL_HEADER_LENGTH], [u8; MAX_EMAIL_BODY_LENGTH]) {
+) -> pub ([Field; 5], [u8; MAX_EMAIL_HEADER_LENGTH], [u8; MAX_EMAIL_BODY_LENGTH]) {
 
     // verify the dkim signature over the header
     pubkey.verify_dkim_signature(header, signature);
@@ -57,12 +58,41 @@ fn main(
     );
 
     // mask the header and body
-    let masked_header = mask_text(header, header_mask);
-    let masked_body = mask_text(body, body_mask);
+    let masked_header = mask_signed_bytes(header, header_mask);
+    let masked_body = mask_signed_bytes(body, body_mask);
 
     // hash the pubkey and signature for the standard outputs
     let email_nullifier = pedersen_hash(signature);
     let pubkey_hash = pubkey.hash();
-    let standard_out = [pubkey_hash[0], pubkey_hash[1], email_nullifier];
+    let standard_out = [
+        pubkey_hash[0],
+        pubkey_hash[1],
+        email_nullifier,
+        header.len() as Field,
+        body.len() as Field,
+    ];
     (standard_out, masked_header, masked_body)
+}
+
+/**
+ * Mask `text` and publish ONLY its first `text.len()` bytes; every later byte is output as 0.
+ *
+ * REASON (security): zkemail.nr's `mask_text` outputs all N storage bytes, but SHA-256 and the
+ * DKIM RSA check cover only the first `len` bytes. Storage past `len` is unconstrained prover
+ * input, so a prover could append unsigned text ("\r\nsubject:FORGED…", "I owe you $1,000,000")
+ * and it would be displayed as part of the signed email. Found in review of PR #21; regression
+ * tests: tests/soundness.test.ts. The same flaw exists in every legacy v1 proof.
+ *
+ * `in_range` is a running flag that switches off at i == len, which costs about 3 gates per byte.
+ * The alternative, a `<` range check per index, costs more.
+ */
+fn mask_signed_bytes<let N: u32>(text: BoundedVec<u8, N>, mask: [bool; N]) -> [u8; N] {
+    let len = text.len();
+    let mut out = [0; N];
+    let mut in_range = true;
+    for i in 0..N {
+        in_range = in_range & (i != len);
+        out[i] = text.get_unchecked(i) * ((mask[i] & in_range) as u8);
+    }
+    out
 }
