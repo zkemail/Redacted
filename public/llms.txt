@@ -14,7 +14,7 @@ Flow:
 1. Get the raw email. Gmail MCP: call `get_message` with `messageFormat: "RAW"`. Gmail API: `format=raw`. Browser: Gmail "Show original" → "Download original".
 2. `node ~/.redacted-prover/redacted.mjs inspect email.eml` checks DKIM and shows the signed, canonical content.
 3. `... prove email.eml --dry-run [--only-headers from,subject,date] [--hide-body --reveal "text"] [--hide "secret"]` previews exactly what becomes public. Confirm it with the user.
-4. `... prove email.eml <same flags> --publish` proves locally and uploads only the proof and its public outputs. It prints `https://redacted.zk.email/verify?id=<uuid>`. Size limits: canonical body up to 49,152 bytes and signed header up to 4,096 bytes. Bodies over 8,448 bytes use the CLI-only "large" tier (~1 min, ~7 GB RAM).
+4. `... prove email.eml <same flags> --publish` proves locally and uploads only the proof and its public outputs. It prints `https://redacted.zk.email/verify?id=<uuid>`. Size limits: canonical body up to 100,352 bytes and signed header up to 4,096 bytes. Bodies over 8,448 bytes use the CLI-only "large" tier (~1 min, ~7 GB RAM), and bodies over 49,152 bytes the CLI-only "xl" tier (~2–4 min, ~8.5 GB RAM).
 5. `... verify <verify-url>` checks a proof locally and checks that its DKIM key hashes (modulus and redc) match the sender's DNS key (or archive.zk.email). Exit code 4 flags a legacy v1 proof, made before the 2026 soundness fixes. Don't rely on it.
 
 Privacy: the .eml is never sent anywhere. The published proof contains only the bytes you left unmasked. By default the values of to/cc/bcc/reply-to/list-post/list-unsubscribe are hidden, along with DKIM bh=.
