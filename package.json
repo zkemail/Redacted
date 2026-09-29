@@ -11,7 +11,8 @@
     "server": "node server/index.js",
     "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
     "setup-cors": "node server/setup-cors.js",
-    "compile:circuits": "npx tsx scripts/compile-circuits.ts"
+    "compile:circuits": "npx tsx scripts/compile-circuits.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@aztec/bb.js": "5.0.0",
