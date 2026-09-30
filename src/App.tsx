@@ -8,7 +8,7 @@ import ActionBar from "./components/ActionBar";
 import UploadModal from "./components/UploadModal";
 import VerificationUrlModal from "./components/VerificationUrlModal";
 import { type ParsedEmail, type DKIMResult } from "./utils/emlParser";
-import { handleGenerateProof, handleVerifyProof as verifyProof } from "./lib";
+import { CLI_URL, handleGenerateProof, handleVerifyProof as verifyProof } from "./lib";
 import { generateUuid } from "./utils/gcsUpload";
 import { createVerificationUrl } from "./utils/urlEncoder";
 import type { ProofData } from "@aztec/bb.js";
@@ -43,6 +43,8 @@ export default function MainApp() {
   const [parsedEmail, setParsedEmail] = useState<ParsedEmail | null>(null);
   const [headerMask, setHeaderMask] = useState<number[]>([]);
   const [bodyMask, setBodyMask] = useState<number[]>([]);
+  // Redactions EmailCard could not place in the signed bytes (see utils/headerMask.ts).
+  const [unplacedRedactions, setUnplacedRedactions] = useState<string[]>([]);
 
   // Undo/redo state
   const [undoRedoHandlers, setUndoRedoHandlers] = useState<{
@@ -156,9 +158,10 @@ export default function MainApp() {
   );
 
   const handleMaskChange = useCallback(
-    (headerMaskValue: number[], bodyMaskValue: number[]) => {
+    (headerMaskValue: number[], bodyMaskValue: number[], unplaced: string[]) => {
       setHeaderMask(headerMaskValue);
       setBodyMask(bodyMaskValue);
+      setUnplacedRedactions(unplaced);
     },
     []
   );
@@ -176,6 +179,18 @@ export default function MainApp() {
 
   const handleVerify = async () => {
     if (!email.originalEml) return;
+    // REASON (security review finding 3): proving with a redaction that couldn't be placed would
+    // publish the text the user hid (and the proof is uploaded right after). Refuse instead.
+    if (unplacedRedactions.length > 0) {
+      setToast({
+        type: 'error',
+        message:
+          `Couldn't apply your redaction of ${unplacedRedactions.join(', ')} to the signed email, so no proof ` +
+          `was generated (it would have shown that text). Hide the whole field, or use the command-line prover: ${CLI_URL}`,
+      });
+      trackEvent("proof_generation_blocked", { reason: "unplaced_redaction" });
+      return;
+    }
 
     setIsGeneratingProof(true);
     await new Promise(r => setTimeout(r, 0)); // Yield to event loop so React can re-render

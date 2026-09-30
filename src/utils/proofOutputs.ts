@@ -4,6 +4,7 @@
  *
  * Layout: [prefix fields, ...maxHeaderLength header bytes, ...maxBodyLength body bytes].
  * Each byte is one 32-byte hex field, e.g. "0x…61" = 'a'. Masked characters are 0x00.
+ * Every input is canonicalized first (canonicalPublicInputs); anything else throws.
  */
 export interface OutputLayout {
   prefix: number;
@@ -11,20 +12,43 @@ export interface OutputLayout {
   maxBodyLength: number;
 }
 
-const hexFieldToByte = (hexField: unknown): number => {
-  if (typeof hexField === "string") {
-    const hex = hexField.startsWith("0x") ? hexField.slice(2) : hexField;
-    return parseInt(hex.slice(-2), 16);
-  }
-  if (typeof hexField === "number") return hexField & 0xff;
-  return 0;
+// Input is a canonical field element (canonicalPublicInputs). REASON: the whole value is read, not
+// its last two hex digits; a byte output above 0xff isn't a byte this circuit can produce.
+const fieldToByte = (field: string): number => {
+  const v = BigInt(field);
+  if (v > 0xffn) throw new Error("byte output out of range");
+  return Number(v);
 };
+
+/** BN254 scalar field modulus: every public input is an element of this field. */
+export const BN254_FIELD_MODULUS = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001n;
+
+/**
+ * Every public input as "0x" + 64 lowercase hex digits, or throw.
+ *
+ * REASON (review finding 2): bb.js parses public inputs with BigInt(), which also accepts decimal
+ * ("65"), whitespace ("0x41 ") and other forms, while the decoders read the last two characters
+ * as hex. A proof over "ABCD" verified with inputs ["65","66","67","68"] and displayed "efgh".
+ * Only a 0x-prefixed hex string below the field modulus is accepted; callers verify AND decode
+ * the returned array, so the verified values and the displayed bytes can't differ.
+ */
+export function canonicalPublicInputs(inputs: readonly unknown[]): string[] {
+  if (!Array.isArray(inputs)) throw new Error("public inputs are not an array");
+  return inputs.map((x, i) => {
+    if (typeof x !== "string" || !/^0x[0-9a-fA-F]{1,64}$/.test(x)) {
+      throw new Error(`public input ${i} is not a 0x-prefixed hex field element`);
+    }
+    const v = BigInt(x);
+    if (v >= BN254_FIELD_MODULUS) throw new Error(`public input ${i} is not below the field modulus`);
+    return "0x" + v.toString(16).padStart(64, "0");
+  });
+}
 
 /** Number of leading public fields in a v2 proof: modulus hash, redc hash, nullifier, lengths. */
 export const V2_PREFIX = 5;
 
-const fieldToNumber = (field: unknown): number => {
-  const n = BigInt(typeof field === "string" && !field.startsWith("0x") ? "0x" + field : String(field));
+const fieldToNumber = (field: string): number => {
+  const n = BigInt(field);
   if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("length field out of range");
   return Number(n);
 };
@@ -65,11 +89,13 @@ export function decodeMaskedBytes(
   layout: OutputLayout
 ): { header: Uint8Array; body: Uint8Array } {
   const { prefix, maxHeaderLength, maxBodyLength } = layout;
+  publicInputs = canonicalPublicInputs(publicInputs);
+  if (publicInputs.length !== prefix + maxHeaderLength + maxBodyLength) throw new Error("public input count does not match the circuit");
   const headerBytes = new Uint8Array(maxHeaderLength);
-  for (let i = 0; i < maxHeaderLength; i++) headerBytes[i] = hexFieldToByte(publicInputs[prefix + i]);
+  for (let i = 0; i < maxHeaderLength; i++) headerBytes[i] = fieldToByte(publicInputs[prefix + i]);
   const bodyStart = prefix + maxHeaderLength;
   const bodyBytes = new Uint8Array(maxBodyLength);
-  for (let i = 0; i < maxBodyLength; i++) bodyBytes[i] = hexFieldToByte(publicInputs[bodyStart + i]);
+  for (let i = 0; i < maxBodyLength; i++) bodyBytes[i] = fieldToByte(publicInputs[bodyStart + i]);
   if (prefix === V2_PREFIX) {
     const headerLen = fieldToNumber(publicInputs[3]);
     const bodyLen = fieldToNumber(publicInputs[4]);

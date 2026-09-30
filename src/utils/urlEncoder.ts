@@ -220,18 +220,19 @@ export async function fetchProofData(uuid: string): Promise<{
         if (typeof arr === 'string') {
           return arr;
         }
-        // If it's an array of numbers, convert to hex string
+        // If it's an array of numbers, convert to hex string.
+        // NOTE: "0x" matters. A bare hex string would be read as DECIMAL by bb.js's BigInt().
         if (Array.isArray(arr)) {
           const hexString = arr.map((b: any) => {
             const num = typeof b === 'number' ? b : parseInt(b, 10);
             return num.toString(16).padStart(2, '0');
           }).join('');
-          return hexString;
+          return '0x' + hexString;
         }
         // If it's a Uint8Array (shouldn't happen, but handle it)
         if (arr instanceof Uint8Array) {
           const hexString = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-          return hexString;
+          return '0x' + hexString;
         }
         throw new Error(`Unexpected publicInput type at index ${idx}: ${typeof arr}`);
       }),

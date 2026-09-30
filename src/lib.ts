@@ -12,9 +12,9 @@ import { bnToLimbStrArray } from "@mach-34/noir-bignum-paramgen";
 import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
-import { decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
+import { canonicalPublicInputs, decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
 import { dkimFieldSequence } from "./utils/dkimFields";
-import { bodyViewFor, viewMaskToRawMask, displayDecodeMasked, looksQuotedPrintable } from "./utils/qp";
+import { bodyViewFor, charMaskToByteMask, viewMaskToRawMask, displayDecodeMasked, looksQuotedPrintable } from "./utils/qp";
 
 /**
  * Circuit versions
@@ -228,6 +228,19 @@ export const handleGenerateProof = async (
   // The UI's body mask is per character of the displayed body, which is decoded for
   // quoted-printable emails (utils/qp.ts). Map it to the raw signed bytes the circuit masks.
   const bodyByteMask = viewMaskToRawMask(bodyViewFor(dkimResult.body), bodyMask);
+  // The UI's header mask is per character of the signed header decoded as UTF-8 (EmailCard). Map
+  // it to bytes. REASON: applied 1:1, every mask after a non-ASCII header byte was shifted and
+  // revealed the wrong bytes. A mask of any other length wasn't built from these signed headers
+  // (e.g. the DKIM result changed), so refuse rather than guess which bytes it covers.
+  const headerUtf8 = new TextDecoder("utf-8").decode(dkimResult.headers);
+  let headerByteMask: number[];
+  if (!headerMask.some((b) => b === 0)) {
+    headerByteMask = new Array(dkimResult.headers.length).fill(1); // nothing hidden in the header
+  } else if (headerMask.length !== headerUtf8.length) {
+    throw new Error("Header redactions don't line up with the signed header; reload the email and redact again.");
+  } else {
+    headerByteMask = charMaskToByteMask(headerUtf8, headerMask, dkimResult.headers.length);
+  }
   const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);
   const circuit = await loadCircuit(config);
 
@@ -242,7 +255,7 @@ export const handleGenerateProof = async (
   const lowered = new Uint8Array(dkimResult.headers);
   for (let i = seq.index; i < seq.index + 14; i++) lowered[i] = headerText.charCodeAt(i) | 0x20;
   const inputs = await generateEmailVerifierInputsFromDKIMResult({ ...dkimResult, headers: Buffer.from(lowered) }, {
-    headerMask: pad(headerMask, config.maxHeaderLength),
+    headerMask: pad(headerByteMask, config.maxHeaderLength),
     bodyMask: pad(bodyByteMask, config.maxBodyLength),
     maxHeadersLength: config.maxHeaderLength,
     maxBodyLength: config.maxBodyLength,
@@ -321,9 +334,19 @@ async function verifyWith(c: CircuitConfig, proof: ProofData): Promise<boolean> 
  * Verify a zero-knowledge proof against every circuit whose output shape matches.
  */
 export const handleVerifyProof = async (proof: ProofWithCircuit): Promise<VerificationResult> => {
-  for (const c of candidateCircuits(proof)) {
+  // REASON: verify the canonical inputs, never the raw strings. extractMaskedDataFromProof decodes
+  // the same canonical array, so the displayed bytes are exactly the verified values (see
+  // canonicalPublicInputs). A non-canonical proof is invalid, not "valid but oddly encoded".
+  let canonical: ProofWithCircuit;
+  try {
+    canonical = { ...proof, publicInputs: canonicalPublicInputs(proof.publicInputs) };
+  } catch (e) {
+    console.error("❌ [VERIFY] Rejected non-canonical public inputs:", e);
+    return { valid: false };
+  }
+  for (const c of candidateCircuits(canonical)) {
     try {
-      if (await verifyWith(c, proof)) {
+      if (await verifyWith(c, canonical)) {
         console.log(`✅ [VERIFY] Verification successful with ${c.name} (v${c.version})`);
         return {
           valid: true,
@@ -344,7 +367,7 @@ export const handleVerifyProof = async (proof: ProofWithCircuit): Promise<Verifi
 /**
  * Extract masked header and body from proof public inputs.
  *
- * Layout: [prefix fields (2 for v1, 3 for v2), ...maxHeaderLength header bytes,
+ * Layout: [prefix fields (2 for v1, 5 for v2), ...maxHeaderLength header bytes,
  * ...maxBodyLength body bytes]. Each byte is a 32-byte hex field, e.g. "0x…61" = 'a'.
  * Masked characters are 0x00. The original email cannot be recovered from the proof.
  */
@@ -357,6 +380,8 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
   bodyDecodedFromQp: boolean;
 } | null {
   try {
+    // Decode exactly what handleVerifyProof verifies (throws on non-canonical inputs).
+    proof = { ...proof, publicInputs: canonicalPublicInputs(proof.publicInputs) };
     const layout = candidateCircuits(proof)[0];
     if (!layout) {
       console.error(`Unknown circuit configuration: ${proof.publicInputs?.length} publicInputs`);

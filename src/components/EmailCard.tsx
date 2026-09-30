@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import EmailField from "./EmailField";
+import { placeHeaderFieldMask } from "../utils/headerMask";
 import DashedBorder from "./DashedBorder";
 
 type SelectionInfo = {
@@ -49,7 +50,9 @@ interface EmailCardProps {
   maskedFields?: Set<string>; // Set of field names that are masked
   onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void; // Callback to update undo/redo button states
   onUndoRedoHandlersReady?: (handlers: { undo: () => void; redo: () => void }) => void; // Callback to provide undo/redo handlers
-  onMaskChange?: (headerMask: number[], bodyMask: number[]) => void; // Callback to update header and body masks
+  // Callback to update header and body masks. `unplaced` lists redactions that could not be placed
+  // in the signed bytes; a proof must not be generated while it is non-empty.
+  onMaskChange?: (headerMask: number[], bodyMask: number[], unplaced: string[]) => void;
   onHasMaskedContentChange?: (hasMasked: boolean) => void; // Callback to indicate if any content is masked in UI
   onMaskedFieldsSync?: (fields: Set<string>) => void; // Callback to sync maskedFields when maskBits change
   disableSelectionMasking?: boolean; // If true, disable text selection masking functionality
@@ -1476,304 +1479,40 @@ export default function EmailCard({
     // Circuit-aligned: 1 = reveal (start with everything revealed)
     const bits = new Array(originalEml.length).fill(1);
 
-    // Helper to find and map field value in original EML
-    // IMPORTANT: This function maps mask bits to the raw EML positions
-    // For From and To fields, it searches for the email within angle brackets <email@example.com>
-    // For other fields, it uses the header line pattern
-    const mapFieldToOriginal = (fieldValue: string, fieldBits: number[], fieldName: string) => {
-      if (!fieldValue || fieldBits.length === 0) {
-        return;
-      }
-
-      // Find where the body starts (header separator)
-      const bodySeparator = originalEml.indexOf('\r\n\r\n');
-      const bodyStart = bodySeparator >= 0 ? bodySeparator : originalEml.indexOf('\n\n');
-      const headersSection = bodyStart >= 0 ? originalEml.slice(0, bodyStart) : originalEml;
-
-      // Map field name to header name (e.g., "time" -> "Date")
-      let headerFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
-      if (fieldName === 'time') {
-        headerFieldName = 'Date';
-      }
-
-      let actualValueStart = -1;
-      let found = false;
-
-      // Special handling for From and To fields (email addresses)
-      if (fieldName === 'from' || fieldName === 'to') {
-        // If we have ranges information, use it for exact positioning
-        const rangeKey = fieldName as 'from' | 'to';
-        if (email.ranges && email.ranges[rangeKey]) {
-          const range = email.ranges[rangeKey];
-          // rawStart is position after colon, displayOffset accounts for leading whitespace
-          // The actual field value starts at rawStart + displayOffset
-          actualValueStart = range.rawStart + range.displayOffset;
-          found = true;
-        } else {
-          // Fallback: search for the header line
-          const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
-          const headerLineMatch = headerLinePattern.exec(headersSection);
-
-          if (headerLineMatch) {
-            const lineStart = headerLineMatch.index;
-            const line = headerLineMatch[0];
-            const colonIndex = line.indexOf(':');
-
-            if (colonIndex >= 0) {
-              // Get everything after the colon
-              const valueSection = line.slice(colonIndex + 1);
-
-              // Look for angle brackets first - emails are often in <email@example.com> format
-              const angleBracketStart = valueSection.indexOf('<');
-              const angleBracketEnd = angleBracketStart >= 0 ? valueSection.indexOf('>', angleBracketStart) : -1;
-
-              if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
-                // There are angle brackets, check if email is inside
-                const contentInsideBrackets = valueSection.slice(angleBracketStart + 1, angleBracketEnd);
-                const emailIndexInBrackets = contentInsideBrackets.indexOf(fieldValue);
-
-                if (emailIndexInBrackets >= 0) {
-                  // Email is inside brackets - position is after the <
-                  actualValueStart = lineStart + colonIndex + 1 + angleBracketStart + 1 + emailIndexInBrackets;
-                  found = true;
-                } else {
-                  // Email not found inside brackets, try direct search
-                  const emailIndex = valueSection.indexOf(fieldValue);
-                  if (emailIndex >= 0) {
-                    actualValueStart = lineStart + colonIndex + 1 + emailIndex;
-                    found = true;
-                  }
-                }
-              } else {
-                // No angle brackets, look for the email directly in the value section
-                const emailIndex = valueSection.indexOf(fieldValue);
-                if (emailIndex >= 0) {
-                  // Skip leading whitespace
-                  const leadingWhitespaceMatch = valueSection.slice(0, emailIndex).match(/\s*$/);
-                  const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
-                  actualValueStart = lineStart + colonIndex + 1 + emailIndex - leadingWhitespace;
-                  found = true;
-                }
-              }
-            }
-          }
-        }
-      } else {
-        // For other fields (time, subject), use the header line pattern approach
-        // Escape special regex characters in field value
-        const escapedValue = fieldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-        // Search for header line: "HeaderName: value" (allowing for whitespace)
-        const headerPattern = new RegExp(
-          `^${headerFieldName}\\s*:\\s*${escapedValue}`,
-          'im'
-        );
-        const headerMatch = headerPattern.exec(headersSection);
-
-        if (headerMatch) {
-          // Find the colon to get the start of the value
-          const lineStart = headerMatch.index;
-          const line = headerMatch[0];
-          const colonIndex = line.indexOf(':');
-          if (colonIndex >= 0) {
-            // Get the value part (after colon and any whitespace)
-            const valueStartInLine = colonIndex + 1;
-            // Skip leading whitespace
-            const leadingWhitespaceMatch = line.slice(valueStartInLine).match(/^\s*/);
-            const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
-            actualValueStart = lineStart + colonIndex + 1 + leadingWhitespace;
-            found = true;
-          }
-        } else {
-          // Fallback: search for header line and then find value within it
-          const headerLinePattern = new RegExp(`^${headerFieldName}\\s*:.*$`, 'im');
-          const headerLineMatch = headerLinePattern.exec(headersSection);
-
-          if (headerLineMatch) {
-            const lineStart = headerLineMatch.index;
-            const line = headerLineMatch[0];
-            const colonIndex = line.indexOf(':');
-            if (colonIndex >= 0) {
-              // Get everything after the colon
-              const valueSection = line.slice(colonIndex + 1);
-              // Find the field value within this section
-              const valueIndex = valueSection.indexOf(fieldValue);
-              if (valueIndex >= 0) {
-                // Skip leading whitespace before the value
-                const leadingWhitespaceMatch = valueSection.slice(0, valueIndex).match(/\s*$/);
-                const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
-                actualValueStart = lineStart + colonIndex + 1 + valueIndex - leadingWhitespace;
-                found = true;
-              }
-            }
-          }
-        }
-      }
-
-      // Map the mask bits to the found position
-      if (found && actualValueStart >= 0) {
-        const minLength = Math.min(fieldBits.length, fieldValue.length);
-        for (let i = 0; i < minLength; i++) {
-          if (actualValueStart + i < bits.length && actualValueStart + i >= 0) {
-            bits[actualValueStart + i] = fieldBits[i] || 0;
-          }
-        }
-      } else if (fieldName === 'from' || fieldName === 'to') {
-        console.warn(`[EmailCard] Failed to map "${fieldName}" into original EML – not found or invalid position`);
-      }
-    };
-
+    // NOTE: header redactions are placed only in the DKIM-canonical header (below). The old raw-EML
+    // fallback (mapFieldToOriginal) produced positions that don't match the signed bytes.
     // Header masking: create a separate mask array for canonicalized headers
     // The circuit receives canonicalized headers, so the mask must align with those positions
     const canonicalizedHeaders = email.dkimCanonicalizedHeaders;
     let canonicalHeaderBits: number[] | null = null;
 
+    // Redactions that could not be placed in the signed bytes. REASON (security review finding 3):
+    // a redaction that silently fails to map is a leak (the proof publishes what the user hid), so
+    // each one is reported and proof generation refuses while any remain (App.tsx handleVerify).
+    const unplacedRedactions: string[] = [];
+    const hasHeaderRedactions = [fromMaskBits, toMaskBits, timeMaskBits, subjectMaskBits].some((b) => b.some((bit) => bit === 0));
+
     if (canonicalizedHeaders) {
       // Create header mask array sized to canonicalized headers (not original EML)
       canonicalHeaderBits = new Array(canonicalizedHeaders.length).fill(1);
-
-      // Helper to find the range of a specific header line in canonicalized headers
-      // Returns { start, end } where start is after "fieldname:" and end is before next header
-      // IMPORTANT: Must match header name at line start to avoid matching substrings
-      // (e.g., "to:" should not match inside "reply-to:")
-      const findHeaderLineRange = (headerName: string): { start: number; end: number } | null => {
-        // Canonicalized headers use lowercase header names
-        const headerPrefix = headerName.toLowerCase() + ':';
-
-        // Search for header at start of string or after newline to avoid substring matches
-        let headerStart = -1;
-
-        if (canonicalizedHeaders.startsWith(headerPrefix)) {
-          headerStart = 0;
-        } else {
-          // Search for header after newline
-          const patterns = ['\r\n' + headerPrefix, '\n' + headerPrefix];
-          for (const pattern of patterns) {
-            const pos = canonicalizedHeaders.indexOf(pattern);
-            if (pos >= 0) {
-              headerStart = pos + pattern.length - headerPrefix.length;
-              break;
-            }
-          }
+      // Case-insensitive names and folded values, so c=simple headers work too (utils/headerMask.ts).
+      const fields: [string, string, number[], string][] = [
+        ['from', email.from, fromMaskBits, 'From'],
+        ['to', email.to, toMaskBits, 'To'],
+        ['date', email.time, timeMaskBits, 'Date'],
+        ['subject', email.subject, subjectMaskBits, 'Subject'],
+      ];
+      for (const [header, value, fieldBits, label] of fields) {
+        if (!placeHeaderFieldMask(canonicalizedHeaders, header, value, fieldBits, canonicalHeaderBits)) {
+          console.warn(`[HEADER MASK] ${label}: redaction could not be placed in the signed header`);
+          unplacedRedactions.push(label);
         }
-
-        if (headerStart < 0) {
-          console.warn(
-            `[EmailCard] Header "${headerName}" prefix "${headerPrefix}" not found in canonicalized headers`,
-          );
-          return null;
-        }
-
-        // Start of value is after the colon
-        const valueStart = headerStart + headerPrefix.length;
-
-        // End is at the next line break (\r\n or \n) or end of headers
-        // NOTE: Line breaks are the correct approach per RFC 5322 (email format) and RFC 6376 (DKIM).
-        // Email headers are line-delimited by spec. We can't split upfront because we need
-        // exact byte positions for mask bit mapping.
-        let valueEnd = canonicalizedHeaders.indexOf('\r\n', valueStart);
-        if (valueEnd < 0) {
-          // Try just \n (some systems use LF only)
-          valueEnd = canonicalizedHeaders.indexOf('\n', valueStart);
-        }
-        if (valueEnd < 0) {
-          valueEnd = canonicalizedHeaders.length;
-        }
-        return { start: valueStart, end: valueEnd };
-      };
-
-      // Text-search approach: find the exact field value in the header line, then apply mask bits
-      const mapHeaderFieldMask = (fieldValue: string, fieldBits: number[], fieldName: string) => {
-        if (!fieldValue || fieldBits.length === 0 || !canonicalHeaderBits) return;
-        if (!fieldBits.some(bit => bit === 0)) return; // No masking needed
-
-        // Map field name to header name
-        let headerName = fieldName;
-        if (fieldName === 'time') headerName = 'date';
-
-        // Find the range of this specific header line
-        const headerRange = findHeaderLineRange(headerName);
-        if (!headerRange) {
-          console.warn(`[HEADER MASK] ${fieldName}: header line "${headerName}:" not found in canonicalized headers`);
-          return;
-        }
-
-        // Get the header line content for searching
-        const headerLineContent = canonicalizedHeaders.slice(headerRange.start, headerRange.end);
-
-        // Robust search: try multiple strategies to find the field value
-        // These are FALLBACK strategies - each is only tried if the previous one failed.
-        // This handles variations in how email addresses appear in headers:
-        // - Exact match works for simple cases
-        // - Case-insensitive handles DKIM canonicalization lowercasing
-        // - Angle brackets handles "Display Name" <email@example.com> format
-        let fieldValuePos = -1;
-        let actualValueInHeader = fieldValue;
-
-        // Strategy 1: Exact match (always tried first)
-        fieldValuePos = headerLineContent.indexOf(fieldValue);
-
-        // Strategy 2: Case-insensitive match (for email addresses)
-        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
-          const lowerHeaderContent = headerLineContent.toLowerCase();
-          const lowerFieldValue = fieldValue.toLowerCase();
-          const lowerPos = lowerHeaderContent.indexOf(lowerFieldValue);
-          if (lowerPos >= 0) {
-            // Found case-insensitive match - use the original position
-            fieldValuePos = lowerPos;
-            // Get the actual value from the header (with original case)
-            actualValueInHeader = headerLineContent.slice(lowerPos, lowerPos + fieldValue.length);
-          }
-        }
-
-        // Strategy 3: Search for email within angle brackets
-        if (fieldValuePos < 0 && (fieldName === 'from' || fieldName === 'to')) {
-          // Look for <email@domain.com> pattern
-          const angleBracketStart = headerLineContent.indexOf('<');
-          const angleBracketEnd = angleBracketStart >= 0 ? headerLineContent.indexOf('>', angleBracketStart) : -1;
-          if (angleBracketStart >= 0 && angleBracketEnd > angleBracketStart) {
-            const emailInBrackets = headerLineContent.slice(angleBracketStart + 1, angleBracketEnd);
-            // Case-insensitive comparison for email
-            if (emailInBrackets.toLowerCase() === fieldValue.toLowerCase()) {
-              fieldValuePos = angleBracketStart + 1;
-              actualValueInHeader = emailInBrackets;
-            }
-          }
-        }
-
-        if (fieldValuePos < 0) {
-          console.warn(
-            `[EmailCard] Header mask: "${fieldName}" value "${fieldValue}" not found in canonicalized header line`,
-          );
-          return;
-        }
-
-        // Apply mask bits directly at the field value position
-        // fieldBits[i] corresponds to fieldValue[i], which is at headerLineContent[fieldValuePos + i]
-        const absoluteFieldStart = headerRange.start + fieldValuePos;
-
-        for (let i = 0; i < Math.min(fieldBits.length, actualValueInHeader.length); i++) {
-          if (fieldBits[i] === 0) {
-            const absolutePos = absoluteFieldStart + i;
-            if (absolutePos < canonicalHeaderBits.length) {
-              canonicalHeaderBits[absolutePos] = 0;
-            }
-          }
-        }
-      };
-
-      // Map each header field using text-search in canonicalized headers
-      mapHeaderFieldMask(email.from, fromMaskBits, 'from');
-      mapHeaderFieldMask(email.to, toMaskBits, 'to');
-      mapHeaderFieldMask(email.time, timeMaskBits, 'time');
-      mapHeaderFieldMask(email.subject, subjectMaskBits, 'subject');
-    } else {
-      // Fallback to position-based approach if no canonicalized headers available
-      console.warn('[EmailCard] Header mask: no canonicalized headers available, falling back to position-based mapping');
-      mapFieldToOriginal(email.from, fromMaskBits, 'from');
-      mapFieldToOriginal(email.to, toMaskBits, 'to');
-      mapFieldToOriginal(email.time, timeMaskBits, 'time');
-      mapFieldToOriginal(email.subject, subjectMaskBits, 'subject');
+      }
+    } else if (hasHeaderRedactions) {
+      // No DKIM-canonical header: positions in the raw .eml don't line up with the signed bytes the
+      // circuit masks, so header redactions can't be placed safely.
+      console.warn('[EmailCard] Header mask: no canonicalized headers available; header redactions cannot be placed');
+      unplacedRedactions.push('header fields (the email could not be DKIM-verified)');
     }
 
     // Body masking: create a separate mask array for canonicalized body
@@ -1815,6 +1554,7 @@ export default function EmailCard({
       // For each masked segment, find ALL occurrences in canonicalized body
       for (const segment of maskedSegments) {
         const occurrences = findAllOccurrences(segment.text, canonicalizedBody);
+        if (occurrences.length === 0) unplacedRedactions.push('body text');
 
         // Mark ALL occurrences as masked in canonicalBodyBits
         for (const { start, length } of occurrences) {
@@ -1826,8 +1566,11 @@ export default function EmailCard({
         }
       }
     } else if (!canonicalizedBody && bodyMaskBits.some(bit => bit === 0)) {
-      // Fallback: use old approach with raw EML if no canonicalized body
+      // Fallback: use old approach with raw EML if no canonicalized body.
+      // NOTE: raw-EML positions don't match the canonical body the circuit masks, so this is
+      // reported as unplaced and proof generation refuses (see unplacedRedactions).
       console.warn('[EmailCard] Body mask: no canonicalized body available, falling back to raw EML search');
+      unplacedRedactions.push('body text (the email could not be DKIM-verified)');
 
       const bodySeparator = originalEml.indexOf('\r\n\r\n');
       const bodyStart = bodySeparator >= 0 ? bodySeparator + 4 : originalEml.indexOf('\n\n') + 2;
@@ -1871,6 +1614,7 @@ export default function EmailCard({
       mask: bits.join(""),
       canonicalHeaderBits, // Separate header mask for canonicalized headers (null if not available)
       canonicalBodyBits, // Separate body mask for canonicalized body (null if not available)
+      unplacedRedactions: [...new Set(unplacedRedactions)],
     };
   }, [
     email.originalEml,
@@ -1936,7 +1680,7 @@ export default function EmailCard({
         : [];
     }
 
-    onMaskChange(headerMask, bodyMask);
+    onMaskChange(headerMask, bodyMask, aggregatedMask.unplacedRedactions);
   }, [
     aggregatedMask,
     email.originalEml,

@@ -126,17 +126,25 @@ $R verify "https://redacted.zk.email/verify?id=<uuid>"   # or a uuid, or proof.j
 ```
 
 This checks the UltraHonk proof locally **and** checks that the proof's DKIM key hashes (RSA
-modulus **and** reduction parameter) equal the real key for the revealed `d=`/`s=`: first the live
-DNS record, then [archive.zk.email](https://archive.zk.email) for rotated keys. It also warns when
-the `From:` domain doesn't match the DKIM domain.
+modulus **and** reduction parameter) equal the real key for a revealed `d=`/`s=`: first the live
+DNS record (DNS-over-HTTPS via Google and Cloudflare), then [archive.prove.email](https://archive.prove.email)
+for rotated keys. Every
+DKIM-Signature in the header is tried (folded ones too). Then it checks that the `From:` address
+is on the signing domain.
+
+Public inputs must be `0x`-prefixed hex field elements; anything else (decimal strings,
+whitespace) is reported invalid, because the bytes shown must be exactly the bytes verified.
 
 Exit codes:
-- 0: the proof is valid and the key matches.
+- 0: the proof is valid, the key matches, and the `From:` address is on the signing domain.
 - 2: the proof is invalid.
 - 3: the proof is valid but the key isn't matched (treat the sender as unproven).
 - 4: a **legacy v1 proof** (made before the 2026-09 upgrade). Don't rely on it; ask for a new
   proof. Those circuits published bytes past the signed length, so a prover could append unsigned
   text. 2048-bit v1 also didn't bind the RSA reduction parameter (zkemail.nr PR #62).
+- 5: the proof is valid and signed by `d=`, but the `From:` address is on another domain, hidden,
+  or unreadable. The signer is proven; the `From:` line is not (typical for mail sent through an
+  email service that signs with its own domain).
 
 A valid proof alone only shows that *some* RSA key signed the content; the key match is what ties
 it to the sender's domain.
