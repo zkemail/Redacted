@@ -55,8 +55,12 @@ the smallest tier that fits (RSA 1024- or 2048-bit keys):
 | small | 2,048 B | 4,096 B | seconds, ~2 GB RAM |
 | mid | 2,048 B | 8,448 B | seconds, ~3 GB RAM |
 | large | 4,096 B | 48,000 B | ~1 min on 18 cores (longer on fewer), **~7 GB RAM** |
+| xl | 4,096 B | 100,352 B | ~2–4 min on 18 cores (longer on fewer), **~14 GB RAM** (16 GB+ machine) |
 
-The large-tier figures were measured on a 34 KB PayPal receipt: 58 s, 6.6 GB peak for the native `bb`.
+The large-tier figures were measured on a 34 KB PayPal receipt: 58 s, 6.6 GB peak for the native
+`bb`. XL figures were measured on 87.6 KB and 94.9 KB receipts (loaded machine; faster idle). Peak
+memory is the kernel's lifetime physical footprint of the `bb` process (`/usr/bin/time -l`): large
+7.4 GB, XL 13.7 GB (18-core M-series Mac, 2026-09-29).
 
 **Quoted-printable emails** (most HTML email: `=3D`, `=E2=82=AC`, soft line breaks) are shown
 **decoded** by `inspect`, the preview, `verify` and the website. `--hide` and `--reveal` match
@@ -68,8 +72,8 @@ DKIM signatures from a domain other than `From:` (ESPs like ccsend.com, subdomai
 email.airbnb.com) and `c=simple` header canonicalization are both supported. `verify` prints the
 signing `d=` and warns when it isn't the `From:` domain.
 
-The website can prove small and mid in a browser. **Large is CLI-only**, but its proofs verify
-on the website like any other.
+The website can prove small and mid in a browser. **Large and XL are CLI-only**, but their proofs
+verify on the website like any other (XL in about 7 s).
 
 ## 3. Decide with the user what to reveal, then preview it
 
@@ -151,8 +155,10 @@ it to the sender's domain.
 
 - `DKIM verification failed`: the file isn't the original raw message (see step 1), or the key was
   rotated and isn't in the archive. Try a newer email.
-- `canonical body is N bytes`: the email is longer than the large tier (48,000-byte body,
+- `canonical body is N bytes`: the email is longer than the XL tier (100,352-byte body,
   4,096-byte header). Pick a shorter or plain-text email.
-- Out of memory: the large tier needs about 7 GB free. Close other programs or set
-  `REDACTED_THREADS=4`.
+- Out of memory: the large tier needs about 7 GB free and XL about 14 GB (in practice a 16 GB+ machine). Close other programs or
+  set `REDACTED_THREADS=4`.
+- `bb did not start in time`: bb.js waits only 5 s for the native prover to start. The CLI retries
+  automatically; if it keeps failing, the machine is overloaded, so try again when it's idle.
 - Point the CLI at another deployment with `REDACTED_SITE` / `REDACTED_API`.

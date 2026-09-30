@@ -63,6 +63,9 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
   "serialized keys and/or value are too large".
 - **Browser limits.** The mid tier (2^20) proves in about 25 s in a browser. The large tier (2^22)
   needs about 7 GB and is CLI-only (native bb via bb.js 5 in Node).
+- Measure proving memory with `/usr/bin/time -l <bb> prove ...` ("peak memory footprint"). Sampling
+  `footprint`/`vmmap`/RSS of pgrep children read ~2 GB for XL while the real peak is 13.7 GB (large
+  7.4 GB): the sampler caught the wrong process or missed the short MSM spikes.
 - `nargo test` inside `src/circuit/vendor/zkemail` resolves the parent package ("Selected package
   `email_mask` was not found"). Copy the vendor dir elsewhere to run the lib tests.
 
