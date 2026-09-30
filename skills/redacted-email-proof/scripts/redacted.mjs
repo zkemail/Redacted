@@ -34,7 +34,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
 // and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
 // could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
-const CIRCUIT_REF = "68bf94bba4b62f88e6028dc911d1d303acb343f4";
+const CIRCUIT_REF = "f7fd8f459f8ffa112599bc20bc947d6a0167c114";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
@@ -43,23 +43,23 @@ const V2 = {
   prefix: 5, // [modulus hash, redc hash, nullifier, header len, body len]
   circuits: [
     { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_1024_small.json",
-      sha256: "2653d76b6bac633f36084254aa4e2941b31d9c136db9d02bb0fdfffa980f6f29",
-      vkSha256: "e6d57a54e5b6372443ccb9212bf421c90aab6ba7170b9b7aff3a7dc7971200be" },
+      sha256: "4a4ed744799a522a8215c8f384e92a51489c038f70271af39b4aee5d47e84617",
+      vkSha256: "b12c1edf9fee08fa34c94b34680b1f4e133495193e49b0dd51b96c4d3283c623" },
     { name: "email_mask_1024_mid", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_1024_mid.json",
-      sha256: "0011fa76ee3c606fbaca6e85f5a4146af697452380f713acb6e674f31454e76d",
-      vkSha256: "ecc3dfaa7c8d6c3eb7f9c556850d7400aa9b7695c2fb07e43252b8fdd5e501e2" },
-    { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_1024_large.json",
-      sha256: "a9b2fe1a267e3efa02b5abf845a5f71d4da49e240133712abd25a54ba84e7b6a",
-      vkSha256: "5ab69124e1b214a44cfead77ed2984b9bcdc0274b41c3e8e40525566259eb574" },
+      sha256: "0225f4ca0286522c7876a9275d6036ffe8b8b9e74b66d752137c5c4e7ecad2b1",
+      vkSha256: "765fa7be5b1c74028624d2760f9fd300c05e9bdf63e1be33eaf76201dd6df617" },
+    { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 48000, file: "email_mask_1024_large.json",
+      sha256: "bf5897eb4ba364925d391f63fe639e032e4e14d8aea52a9e8db96088b59f15c8",
+      vkSha256: "ae0335801e676bfc396b868849afae8f6d849178e3a17ece6559819137577a6a" },
     { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
-      sha256: "b042ba6f85e3b574bc87c57b29afacaad23a6c693fd53609a58e93b1b15b30b8",
-      vkSha256: "0f8f33a5ebcb91e5b30690636dbc32c7cb3d9c7449252e0eb4a772df2d36e306" },
+      sha256: "cd6d5ad5131ba0139ae7ffabf394c369c03e2f64ef621206453b8dd4eda60694",
+      vkSha256: "088a51ad9d8560fe0aa6e42f68ec4c16a70d83c4165806b87e5816784658b649" },
     { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_2048_mid.json",
-      sha256: "84cbf2060a68781b086bbcc3cb7e9c3eabbddf9a0c61a4ccec1ac80b36bb5c13",
-      vkSha256: "24c00c224373f648b359214ea50e439eb4e11a46f2e0ea79d7d143f0e7b6db48" },
-    { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_2048_large.json",
-      sha256: "fb2e6d153bfecdf2dbe2e57ee9a358160a85e2b2ce185af19b947415d06dd02a",
-      vkSha256: "b12ee63a85ee9fe8bcd52cb773e632e1a14591984aa5bb82330478573d7b3b99" },
+      sha256: "b90d06604d49d33ebcf4af2bd1904fe0fb4c1a7fe063ad0821baa7b5870ed001",
+      vkSha256: "1796fd0ceb709396bbb8f8ae9b496d4b4ac086fdb83de9c5b26bd85374b0383c" },
+    { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 48000, file: "email_mask_2048_large.json",
+      sha256: "8022a74af7eb7145565d6bb8612b9ddbd41a321b556d1e26f45295a213ddea3e",
+      vkSha256: "c2dac85da0771ccc1b8112f51dc1a057558be46007eaa862edc59169c2ba3657" },
   ],
 };
 const V1 = {
@@ -175,12 +175,47 @@ export function readEmail(file) {
 const decodeB64 = (s) =>
   Buffer.from(String(s).replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/"), "base64");
 
+// Unique d= domains of the DKIM-Signature headers (mirrors src/utils/dkimSigner.ts).
+export function signatureDomains(raw) {
+  const text = Buffer.from(raw).toString("latin1");
+  const headerEnd = text.search(/\r?\n\r?\n/);
+  const headers = (headerEnd >= 0 ? text.slice(0, headerEnd) : text).replace(/\r?\n[ \t]+/g, " ");
+  const out = [];
+  for (const line of headers.split(/\r?\n/)) {
+    if (!/^dkim-signature\s*:/i.test(line)) continue;
+    const d = /(?:^|[;:\s])d\s*=\s*([^;\s]+)/i.exec(line.slice(line.indexOf(":") + 1))?.[1]?.toLowerCase();
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+// REASON: verifyDKIMSignature(email) only looks for a signature from the From: domain. ESP- or
+// subdomain-signed mail (ccsend.com, email.airbnb.com, …) failed although a valid signature
+// exists. Try the From domain, then every d=. verify prints d= and warns on From/d= mismatch.
+export async function verifyWithSignerFallback(raw, verify, domain) {
+  if (domain) return verify(raw, domain);
+  let firstError;
+  try {
+    return await verify(raw, undefined);
+  } catch (e) {
+    firstError = e;
+  }
+  for (const d of signatureDomains(raw)) {
+    try {
+      return await verify(raw, d);
+    } catch {
+      /* try the next signature */
+    }
+  }
+  throw firstError;
+}
+
 async function dkimOf(emailBuf, domain) {
   const { zk } = await lib();
   try {
     // (email, domain, enableSanitization, fallbackToZKEmailDNSArchive) — the archive fallback
     // lets old emails prove after the sender rotated its DKIM key.
-    return await zk.verifyDKIMSignature(emailBuf, domain, true, true);
+    return await verifyWithSignerFallback(emailBuf, (raw, d) => zk.verifyDKIMSignature(raw, d, true, true), domain);
   } catch (e) {
     die(
       `DKIM verification failed: ${e.message}\n` +
@@ -403,6 +438,11 @@ export function buildMasks(dkim, opts) {
 // preview stays readable in a terminal or an agent's context window.
 const compact = (s) => s.replace(new RegExp(`${BLOCK}{12,}`, "g"), (m) => `${BLOCK}×${m.length}`);
 
+function renderDecoded(s, mask) {
+  const bytes = Buffer.from(s, "latin1").map((v, i) => (mask[i] ? v : 0));
+  return compact(displayDecodeMasked(bytes).toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
+}
+
 function render(s, mask) {
   // Same bytes the proof will publish (hidden → 0x00), keeping line breaks so the preview stays readable.
   const bytes = Buffer.from(s, "latin1").map((v, i) => (mask[i] || v === 0x0d || v === 0x0a ? v : 0));
@@ -450,7 +490,9 @@ export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const header = latin1(headerBytes.slice(0, headerLen));
   const body = latin1(bodyBytes.slice(0, bodyLen));
   const pretty = (s) => compact(Buffer.from(s, "latin1").toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
-  return { header, body, headerText: pretty(header), bodyText: pretty(body) };
+  const qpBody = hasQuotedPrintablePart(Buffer.from(body, "latin1"));
+  const bodyText = qpBody ? pretty(displayDecodeMasked(Buffer.from(body, "latin1")).toString("latin1")) : pretty(body);
+  return { header, body, headerText: pretty(header), bodyText, bodyDecodedFromQp: qpBody };
 }
 
 // REASON: noir-bignum >= v0.9 (used by the v2 circuits) defines the Barrett parameter as
@@ -463,6 +505,82 @@ const BARRETT_REDUCTION_OVERFLOW_BITS = 6n;
 function redcLimbsV2(bignum, modulus, keyBits) {
   const redc = (1n << (2n * BigInt(keyBits) + BARRETT_REDUCTION_OVERFLOW_BITS)) / modulus;
   return bignum.bnToLimbStrArray(redc);
+}
+
+// Quoted-printable decoding for DISPLAY: "=XX" (hex, either case) -> byte, "=\r\n" -> removed,
+// anything else unchanged. The proof always covers the raw signed bytes; decoding them is a
+// public step (proving it in-circuit added no soundness and cost ~55 gates/byte). Masks are
+// placed on the raw bytes by the QP-aware matching in buildMasks. Mirrors src/utils/qp.ts.
+const hexVal = (c) => (c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 55 : c >= 0x61 && c <= 0x66 ? c - 87 : -1);
+export function qpDecode(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x3d && i + 2 < bytes.length) {
+      if (bytes[i + 1] === 0x0d && bytes[i + 2] === 0x0a) {
+        i += 2;
+        continue;
+      }
+      const h1 = hexVal(bytes[i + 1]), h2 = hexVal(bytes[i + 2]);
+      if (h1 >= 0 && h2 >= 0) {
+        out.push(h1 * 16 + h2);
+        i += 2;
+        continue;
+      }
+    }
+    out.push(bytes[i]);
+  }
+  return Buffer.from(out);
+}
+// Decode a masked raw body (0x00 = hidden) for display; an escape with a hidden byte -> one 0x00.
+export function displayDecodeMasked(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === 0x3d && i + 2 < bytes.length) {
+      const n1 = bytes[i + 1], n2 = bytes[i + 2];
+      if (n1 === 0x0d && n2 === 0x0a) { i += 2; continue; }
+      const h1 = hexVal(n1), h2 = hexVal(n2);
+      if (h1 >= 0 && h2 >= 0) { out.push(h1 * 16 + h2); i += 2; continue; }
+      if ((n1 === 0 || h1 >= 0) && (n2 === 0 || h2 >= 0) && (n1 === 0 || n2 === 0)) { out.push(0); i += 2; continue; }
+    }
+    out.push(b);
+  }
+  return Buffer.from(out);
+}
+export const hasQuotedPrintablePart = (body) => /content-transfer-encoding:\s*quoted-printable/i.test(Buffer.from(body).toString("latin1"));
+
+// Locate the last DKIM-Signature field (any case, folded or not) and its bh= value.
+// Mirrors src/utils/dkimFields.ts. REASON: zkemail-nr's getHeaderSequence can't find a c=simple
+// "DKIM-Signature" (case-sensitive, stops at the first line break, takes the FIRST header).
+export function dkimFieldSequence(header) {
+  let index = -1;
+  for (const m of header.matchAll(/(?:^|\r\n)dkim-signature:/gi)) index = m.index + (m[0].startsWith("\r\n") ? 2 : 0);
+  if (index < 0) throw new Error("No DKIM-Signature field in the signed header");
+  let end = header.length;
+  for (let i = header.indexOf("\r\n", index); i >= 0; i = header.indexOf("\r\n", i + 2)) {
+    const next = header[i + 2];
+    if (next !== " " && next !== "\t") {
+      end = i;
+      break;
+    }
+  }
+  const m = /(?:[:;] ?|;\r\n[ \t])bh=/.exec(header.slice(index, end));
+  if (!m) throw new Error("bh= tag not found in a position the circuit accepts");
+  return { index, length: end - index, bodyHashIndex: index + m.index + m[0].length };
+}
+
+// zkemail-nr input generation, but with the DKIM field located by dkimFieldSequence. zkemail-nr
+// gets a copy whose field name is lowercased (same length); the real signed bytes are restored.
+function circuitInputs(zk, dkim, params) {
+  const h = lat1(dkim.headers);
+  const seq = dkimFieldSequence(h);
+  const lowered = Buffer.from(dkim.headers);
+  for (let i = seq.index; i < seq.index + 14; i++) lowered[i] |= 0x20;
+  const inputs = zk.generateEmailVerifierInputsFromDKIMResult({ ...dkim, headers: lowered }, params);
+  for (let i = 0; i < dkim.headers.length; i++) inputs.header.storage[i] = String(dkim.headers[i]);
+  inputs.dkim_header_sequence = { index: String(seq.index), length: String(seq.length) };
+  inputs.body_hash_index = String(seq.bodyHashIndex);
+  return inputs;
 }
 
 // Expected key-hash public outputs for a DNS modulus. v2: [poseidon(modulus), poseidon(redc)] — redc
@@ -568,6 +686,8 @@ async function checkKeyBinding(publicInputs, headerText, circuit) {
 
 async function cmdInspect(file, opts) {
   const dkim = await dkimOf(readEmail(file), opts.domain);
+  const qp = hasQuotedPrintablePart(dkim.body);
+  const shown = qp ? qpDecode(dkim.body) : Buffer.from(dkim.body);
   const c = pickCircuit(dkim.modulusLength, dkim.headers.length, dkim.body.length);
   const lines = headerLines(lat1(dkim.headers));
   const info = {
@@ -578,29 +698,36 @@ async function cmdInspect(file, opts) {
     sanitization: dkim.appliedSanitization || null,
     headerBytes: dkim.headers.length,
     bodyBytes: dkim.body.length,
+    bodyView: qp ? "quoted-printable (shown decoded; --hide/--reveal match decoded text)" : "raw",
     circuit: c.name,
     circuitLimits: { maxHeaderBytes: c.maxHeaderLength, maxBodyBytes: c.maxBodyLength },
     signedHeaders: lines.map((l) => l.name),
   };
   if (opts.json) {
-    console.log(JSON.stringify({ ...info, header: lat1(dkim.headers), body: lat1(dkim.body) }, null, 2));
+    console.log(JSON.stringify({ ...info, header: lat1(dkim.headers), body: lat1(shown) }, null, 2));
     return;
   }
   console.log(JSON.stringify(info, null, 2));
   console.log("\n----- signed header (DKIM-canonical) -----\n" + Buffer.from(dkim.headers).toString("utf8").replace(/\r\n/g, "\n"));
-  console.log("----- body (DKIM-canonical; masks apply to these bytes) -----\n" + Buffer.from(dkim.body).toString("utf8").replace(/\r\n/g, "\n"));
+  console.log(
+    `----- body (${qp ? "decoded from quoted-printable for reading; --hide/--reveal match this text" : "DKIM-canonical; masks apply to these bytes"}) -----\n` +
+      shown.toString("utf8").replace(/\r\n/g, "\n"),
+  );
 }
 
 async function cmdProve(file, opts) {
   const emailBuf = readEmail(file);
   const dkim = await dkimOf(emailBuf, opts.domain);
+  const qp = hasQuotedPrintablePart(dkim.body);
   const c = pickCircuit(dkim.modulusLength, dkim.headers.length, dkim.body.length);
   const m = buildMasks(dkim, opts);
 
   log(`DKIM ok: d=${dkim.signingDomain} s=${dkim.selector} (${dkim.modulusLength}-bit) → circuit ${c.name}`);
   log(`\n===== what the proof will reveal (${BLOCK} = hidden) =====\n`);
   log(render(m.h, m.headerMask));
-  log("\n" + render(m.b, m.bodyMask));
+  // quoted-printable bodies are previewed decoded, exactly as the verify page will show them
+  log("\n" + (qp ? renderDecoded(m.b, m.bodyMask) : render(m.b, m.bodyMask)));
+  if (qp) log("(body shown decoded from quoted-printable; the proof covers the encoded bytes)");
   log("===== end preview =====\n");
   for (const w of m.warnings) log(`warning: ${w}`);
   const hiddenH = m.headerMask.filter((x) => !x).length;
@@ -617,7 +744,7 @@ async function cmdProve(file, opts) {
   const { bb, noir, zk, bignum } = await lib();
   const circuit = await loadCircuit(c);
   const pad = (arr, n) => (arr.length < n ? [...arr, ...new Array(n - arr.length).fill(1)] : arr.slice(0, n));
-  const inputs = zk.generateEmailVerifierInputsFromDKIMResult(dkim, {
+  const inputs = circuitInputs(zk, dkim, {
     headerMask: pad(m.headerMask, c.maxHeaderLength),
     bodyMask: pad(m.bodyMask, c.maxBodyLength),
     maxHeadersLength: c.maxHeaderLength,

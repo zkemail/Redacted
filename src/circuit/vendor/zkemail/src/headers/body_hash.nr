@@ -40,10 +40,15 @@ pub fn get_body_hash<let MAX_HEADER_LENGTH: u32>(
         body_hash_index + BODY_HASH_BASE64_LENGTH < dkim_header_field_sequence.end_index() + 1;
     assert(start_range & end_range, "Body hash index accessed outside of DKIM header field");
 
-    // check bh prefix
+    // check bh prefix: "bh=" must start a tag, i.e. follow ':' or ';' plus optional folding
+    // whitespace. Redacted patch: also accept ";bh=" (no space) and the folded forms
+    // ";\r\n\tbh=" / ";\r\n bh=" that c=simple signatures keep.
     let bh_prefix_first_no_space: [u8; 5] = comptime { "e:bh=".as_bytes() };
     let bh_prefix_space: [u8; 5] = comptime { ": bh=".as_bytes() };
     let bh_prefix_subsequent: [u8; 5] = comptime { "; bh=".as_bytes() };
+    let bh_prefix_no_space: [u8; 4] = comptime { ";bh=".as_bytes() };
+    let bh_prefix_folded_tab: [u8; 7] = comptime { ";\r\n\tbh=".as_bytes() };
+    let bh_prefix_folded_space: [u8; 7] = comptime { ";\r\n bh=".as_bytes() };
     let mut found_first = true;
     let mut found_subsequent = true;
     for i in 0..5 {
@@ -55,7 +60,22 @@ pub fn get_body_hash<let MAX_HEADER_LENGTH: u32>(
         let match_subsequent = character == bh_prefix_subsequent[i];
         found_subsequent = found_subsequent & match_subsequent;
     }
-    assert(found_first | found_subsequent, "No ':bh=' or '; bh=' prefix found before body hash");
+    let mut found_no_space = true;
+    for i in 0..4 {
+        found_no_space = found_no_space & (header.get_unchecked(body_hash_index - 4 + i) == bh_prefix_no_space[i]);
+    }
+    // body_hash_index > the field start (checked above) and the field starts with the 15-byte
+    // "dkim-signature:", so body_hash_index - 7 never underflows.
+    let mut found_folded = true;
+    for i in 0..7 {
+        let character = header.get_unchecked(body_hash_index - 7 + i);
+        found_folded = found_folded
+            & ((character == bh_prefix_folded_tab[i]) | (character == bh_prefix_folded_space[i]));
+    }
+    assert(
+        found_first | found_subsequent | found_no_space | found_folded,
+        "No ':bh=' or '; bh=' prefix found before body hash",
+    );
 
     // check that bh is followed by ;
     let bh_suffix: u8 = comptime { ";".as_bytes()[0] };

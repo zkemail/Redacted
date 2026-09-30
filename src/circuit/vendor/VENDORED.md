@@ -29,7 +29,18 @@ Once zkemail.nr publishes an rc-compatible tag, replace `vendor/` with git depen
     zkpassport/noir_rsa v0.12.0 uses), rsa → zkpassport/noir_rsa v0.12.0 (noir-lang/noir_rsa is
     deprecated in favour of this fork), nodash v0.45.0, poseidon v0.3.0, sha256 →
     `../sha256` (below), and base64 → `../noir_base64` (below).
-- `nargo test` in `vendor/zkemail` on rc.3: 48/48 pass, including `test_redc_binding_1024/2048`
+- **Redacted security/compat patches (2026-09-29)**, each with a regression test:
+  - `dkim.nr`: range-check the 2048-bit `redc[17]` limb to 17 bits. `poseidon_large` hashes only
+    those bits, so higher bits weren't bound by the key hash
+    (`test_redc_top_limb_bits_outside_hash_are_rejected_2048`).
+  - `headers/mod.nr`: case-insensitive field-name match (c=simple keeps "DKIM-Signature"); a CR
+    inside a field is allowed only as a fold (CRLF + SP/HTAB); field length is asserted to be at
+    most `MAX_DKIM_HEADER_FIELD_LENGTH`.
+  - `lib.nr`: `MAX_DKIM_HEADER_FIELD_LENGTH` raised from 300 to 1024. Previously only the first
+    300 bytes were scanned for line breaks and the length was never checked, so a claimed field
+    could run into a later header line (Redacted `tests/header-canonicalization.test.ts`).
+  - `headers/body_hash.nr`: `bh=` is also accepted after `;` and the folded `;\r\n\t` / `;\r\n `.
+- `nargo test` in `vendor/zkemail` on rc.3: 49/49 pass, including `test_redc_binding_1024/2048`
   and the tampered header/body tests.
 
 ## noir_base64 (`vendor/noir_base64`)

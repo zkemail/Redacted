@@ -14,7 +14,11 @@ pub global KEY_LIMBS_2048: u32 = 18;
 pub global BODY_HASH_BASE64_LENGTH: u32 = 44;
 pub global CR: u8 = 0x0D;
 pub global LF: u8 = 0x0A;
-pub global MAX_DKIM_HEADER_FIELD_LENGTH: u32 = 300; // kinda arbitrary but gives > 100 chars for selector and domain
+// Redacted patch: 300 -> 1024 and now ENFORCED (constrain_header_field asserts length <= max).
+// The "no newline inside the field" loop only scans this many bytes. At 300 with no length
+// check, a longer claimed field went unchecked past byte 300 and could span into later header
+// lines. c=simple DKIM-Signature fields are folded and routinely exceed 300 bytes.
+pub global MAX_DKIM_HEADER_FIELD_LENGTH: u32 = 1024;
 pub global MAX_EMAIL_ADDRESS_LENGTH: u32 = 320; // derived via (https://datatracker.ietf.org/doc/html/rfc5321#section-4.5.3.1.1)
 
 pub struct Sequence {

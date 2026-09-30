@@ -13,6 +13,8 @@ import { get as idbGet } from "idb-keyval";
 import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
 import { decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
+import { dkimFieldSequence } from "./utils/dkimFields";
+import { bodyViewFor, viewMaskToRawMask, displayDecodeMasked, looksQuotedPrintable } from "./utils/qp";
 
 /**
  * Circuit versions
@@ -120,7 +122,10 @@ export function clearCircuitCache(): void {
 await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
 
 // CRS (SRS) points a Barretenberg instance loads. Proving needs at least the circuit's dyadic
-// size: 2^19 for small (≈505k gates), 2^20 for mid (≈818k gates). Verifying from a VK needs
+// size: 2^20 for small and mid (≈559k / 890k gates).
+// REASON (do not raise to 2^21): bb.js caches the uncompressed CRS in IndexedDB as ONE value,
+// and 2^21 points = 134 MB exceeds Chromium's ~127 MB per-value limit ("The serialized keys
+// and/or value are too large"), so every browser proof failed. Browser tiers must stay <= 2^20. Verifying from a VK needs
 // almost none, but bb.js 5 downloads the compressed CRS in 2^17-point (4 MB) chunks and rejects
 // any other size ("compressed points_buf size … must be a positive multiple of 4194304").
 const PROVE_SRS_POINTS = 2 ** 20;
@@ -216,21 +221,37 @@ export const handleGenerateProof = async (
   let dkimResult = existingDkimResult;
   if (!dkimResult) {
     const { verifyDKIMSignature } = await import("@zk-email/helpers/dist/dkim");
-    dkimResult = await verifyDKIMSignature(email);
+    const { verifyWithSignerFallback } = await import("./utils/dkimSigner");
+    dkimResult = await verifyWithSignerFallback(email, (raw, domain) =>
+      verifyDKIMSignature(raw as string, domain)
+    );
   }
 
+  // The UI's body mask is per character of the displayed body, which is decoded for
+  // quoted-printable emails (utils/qp.ts). Map it to the raw signed bytes the circuit masks.
+  const bodyByteMask = viewMaskToRawMask(bodyViewFor(dkimResult.body), bodyMask);
   const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);
   const circuit = await loadCircuit(config);
 
   // Pad masks with 1s (reveal) up to the circuit size: padding bytes are zeros anyway.
   const pad = (mask: number[], n: number) =>
     mask.length < n ? [...mask, ...new Array(n - mask.length).fill(1)] : mask.slice(0, n);
-  const inputs = await generateEmailVerifierInputsFromDKIMResult(dkimResult, {
+  // REASON: zkemail-nr's input generator can't find a c=simple "DKIM-Signature" (see
+  // utils/dkimFields.ts). Give it a copy with only the field name lowercased (same length), then
+  // restore the real signed header bytes and set the sequence and bh index ourselves.
+  const headerText = new TextDecoder("latin1").decode(dkimResult.headers);
+  const seq = dkimFieldSequence(headerText);
+  const lowered = new Uint8Array(dkimResult.headers);
+  for (let i = seq.index; i < seq.index + 14; i++) lowered[i] = headerText.charCodeAt(i) | 0x20;
+  const inputs = await generateEmailVerifierInputsFromDKIMResult({ ...dkimResult, headers: Buffer.from(lowered) }, {
     headerMask: pad(headerMask, config.maxHeaderLength),
-    bodyMask: pad(bodyMask, config.maxBodyLength),
+    bodyMask: pad(bodyByteMask, config.maxBodyLength),
     maxHeadersLength: config.maxHeaderLength,
     maxBodyLength: config.maxBodyLength,
   });
+  for (let i = 0; i < dkimResult.headers.length; i++) inputs.header.storage[i] = String(dkimResult.headers[i]);
+  inputs.dkim_header_sequence = { index: String(seq.index), length: String(seq.length) };
+  inputs.body_hash_index = String(seq.bodyHashIndex);
 
   // REASON: the v2 circuits use noir-bignum >= v0.9, whose Barrett parameter is
   // floor(2^(2k + 6) / n). zkemail-nr 2.0.0 still derives redc with 2^(2k + 4) (via
@@ -335,6 +356,7 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
   publicKeyHash: Uint8Array;
   emailNullifier: Uint8Array;
   version: CircuitVersion;
+  bodyDecodedFromQp: boolean;
 } | null {
   try {
     const layout = candidateCircuits(proof)[0];
@@ -362,9 +384,12 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
     });
 
     const decoder = new TextDecoder("utf-8", { fatal: false });
+    // Display-only decoding of the proven raw bytes (quoted-printable is a public function of them).
+    const bodyDecodedFromQp = looksQuotedPrintable(body);
     return {
       maskedHeader: decoder.decode(header),
-      maskedBody: decoder.decode(body),
+      maskedBody: decoder.decode(bodyDecodedFromQp ? displayDecodeMasked(body) : body),
+      bodyDecodedFromQp,
       publicKeyHash,
       emailNullifier,
       version: layout.version,

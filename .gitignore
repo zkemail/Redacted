@@ -49,3 +49,6 @@ thoughts/
 skills/**/node_modules/
 skills/**/.circuits/
 skills/**/package-lock.json
+
+# nargo generates this template; inputs come from the JS input generators
+src/circuit/Prover.toml
