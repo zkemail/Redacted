@@ -25,19 +25,57 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = (process.env.REDACTED_SITE || "https://redacted.zk.email").replace(/\/$/, "");
 const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 
-// NOTE: circuits are pinned by commit AND sha256. The verify page on redacted.zk.email verifies
-// against these exact artifacts, so a proof made with any other build would show as invalid there.
-// When src/circuit/target/*.json changes in zkemail/Redacted, bump CIRCUIT_REF and the hashes together.
-const CIRCUIT_REF = "0f31b43a81f266d304c111cdf68028b484e5ad8c";
-const CIRCUIT_BASE =
-  process.env.REDACTED_CIRCUIT_BASE ||
-  `https://raw.githubusercontent.com/zkemail/Redacted/${CIRCUIT_REF}/src/circuit/target`;
-const CIRCUITS = [
-  { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, sha256: "5fcb608d0a317af710fab8248a592ed0d8ec1369879d66906541af95d24e8d2a" },
-  { name: "email_mask_1024_mid", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 8448, sha256: "a70c3864adca8394766cc46cecdcbb77a31bd6e6672787e86d06e9567e8d18db" },
-  { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, sha256: "5a8f56aea6efd27d8d884d2284e8907f9d9cbc0a0f6c5be825e3e1da56c51c99" },
-  { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, sha256: "5be92a1a132ddf3800caa22d52aac8eec9f2438270fd94e3e608f21518c36f5b" },
-];
+// NOTE: circuit artifacts and verification keys are pinned by commit AND sha256. The verify page on
+// redacted.zk.email checks proofs against these exact VKs, so a proof made with any other build shows
+// as invalid there. When src/circuit/target changes in zkemail/Redacted, bump CIRCUIT_REF and the
+// hashes together (scripts/compile-circuits.ts prints them).
+//
+// v2 = Noir 1.0.0-rc.3 + Barretenberg 5.0.0 + zkemail.nr v2 (redc bound into the key hash).
+// v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
+// and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
+// could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
+const CIRCUIT_REF = "68bf94bba4b62f88e6028dc911d1d303acb343f4";
+const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
+const V2 = {
+  version: 2,
+  ref: CIRCUIT_REF,
+  base: process.env.REDACTED_CIRCUIT_BASE || `${GH_RAW(CIRCUIT_REF)}/target`,
+  prefix: 5, // [modulus hash, redc hash, nullifier, header len, body len]
+  circuits: [
+    { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_1024_small.json",
+      sha256: "2653d76b6bac633f36084254aa4e2941b31d9c136db9d02bb0fdfffa980f6f29",
+      vkSha256: "e6d57a54e5b6372443ccb9212bf421c90aab6ba7170b9b7aff3a7dc7971200be" },
+    { name: "email_mask_1024_mid", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_1024_mid.json",
+      sha256: "0011fa76ee3c606fbaca6e85f5a4146af697452380f713acb6e674f31454e76d",
+      vkSha256: "ecc3dfaa7c8d6c3eb7f9c556850d7400aa9b7695c2fb07e43252b8fdd5e501e2" },
+    { name: "email_mask_1024_large", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_1024_large.json",
+      sha256: "a9b2fe1a267e3efa02b5abf845a5f71d4da49e240133712abd25a54ba84e7b6a",
+      vkSha256: "5ab69124e1b214a44cfead77ed2984b9bcdc0274b41c3e8e40525566259eb574" },
+    { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
+      sha256: "b042ba6f85e3b574bc87c57b29afacaad23a6c693fd53609a58e93b1b15b30b8",
+      vkSha256: "0f8f33a5ebcb91e5b30690636dbc32c7cb3d9c7449252e0eb4a772df2d36e306" },
+    { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_2048_mid.json",
+      sha256: "84cbf2060a68781b086bbcc3cb7e9c3eabbddf9a0c61a4ccec1ac80b36bb5c13",
+      vkSha256: "24c00c224373f648b359214ea50e439eb4e11a46f2e0ea79d7d143f0e7b6db48" },
+    { name: "email_mask_2048_large", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 49152, file: "email_mask_2048_large.json",
+      sha256: "fb2e6d153bfecdf2dbe2e57ee9a358160a85e2b2ce185af19b947415d06dd02a",
+      vkSha256: "b12ee63a85ee9fe8bcd52cb773e632e1a14591984aa5bb82330478573d7b3b99" },
+  ],
+};
+const V1 = {
+  version: 1,
+  ref: "0f31b43a81f266d304c111cdf68028b484e5ad8c",
+  base: `${GH_RAW("0f31b43a81f266d304c111cdf68028b484e5ad8c")}/target`,
+  prefix: 2, // [key hash (modulus only for 2048-bit), nullifier]
+  circuits: [
+    { name: "email_mask_1024_small", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_1024_small.json", sha256: "5fcb608d0a317af710fab8248a592ed0d8ec1369879d66906541af95d24e8d2a" },
+    { name: "email_mask_1024_mid", keyBits: 1024, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_1024_mid.json", sha256: "a70c3864adca8394766cc46cecdcbb77a31bd6e6672787e86d06e9567e8d18db" },
+    { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json", sha256: "5a8f56aea6efd27d8d884d2284e8907f9d9cbc0a0f6c5be825e3e1da56c51c99" },
+    { name: "email_mask_2048_mid", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 8448, file: "email_mask_2048_mid.json", sha256: "5be92a1a132ddf3800caa22d52aac8eec9f2438270fd94e3e608f21518c36f5b" },
+  ],
+};
+for (const set of [V2, V1]) for (const c of set.circuits) c.set = set;
+const shapeOf = (c) => c.set.prefix + c.maxHeaderLength + c.maxBodyLength;
 const BLOCK = "█";
 // REASON: besides the recipient (to/cc/bcc), list-post / list-unsubscribe / reply-to routinely carry
 // per-recipient tokens (e.g. GitHub's reply+<token>@reply.github.com) that deanonymize the prover.
@@ -107,7 +145,9 @@ async function lib() {
       import("@zk-email/zkemail-nr"),
       import("@mach-34/noir-bignum-paramgen"),
     ]);
-    return { bb, noir, zk, bignum: bignum.default ?? bignum };
+    // bb.js 0.84 (npm alias) is only needed to check legacy v1 links; load it lazily.
+    const bbLegacy = () => import("bb-legacy");
+    return { bb, noir, zk, bignum: bignum.default ?? bignum, bbLegacy };
   } catch (e) {
     die(
       `dependencies missing (${e.message}).\nRun \`npm install\` in ${HERE} first ` +
@@ -151,33 +191,44 @@ async function dkimOf(emailBuf, domain) {
 }
 
 function pickCircuit(keyBits, headerLen, bodyLen) {
-  const fits = CIRCUITS.filter((c) => c.keyBits === keyBits);
+  const fits = V2.circuits.filter((c) => c.keyBits === keyBits);
   if (!fits.length) die(`unsupported DKIM key size ${keyBits} bits (supported: 1024, 2048).`);
-  if (headerLen > 2048)
-    die(`signed header is ${headerLen} bytes; the Redacted circuits support at most 2048.`);
-  const c = fits.find((x) => bodyLen <= x.maxBodyLength);
-  if (!c)
+  // circuits are listed smallest first; take the first that holds both header and body
+  const c = fits.find((x) => headerLen <= x.maxHeaderLength && bodyLen <= x.maxBodyLength);
+  if (!c) {
+    const big = fits.at(-1);
     die(
-      `canonical body is ${bodyLen} bytes; the largest Redacted circuit takes ` +
-        `${fits.at(-1).maxBodyLength}. Pick a shorter email (e.g. a plain-text one).`,
+      `signed header is ${headerLen} bytes and canonical body is ${bodyLen} bytes; the largest Redacted ` +
+        `circuit takes ${big.maxHeaderLength} / ${big.maxBodyLength}. Pick a shorter email (e.g. a plain-text one).`,
     );
+  }
   return c;
 }
 
-async function loadCircuit(c) {
-  const dir = path.join(process.env.REDACTED_CACHE || path.join(HERE, ".circuits"), CIRCUIT_REF.slice(0, 12));
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${c.name}.json`);
-  const sha = (b) => createHash("sha256").update(b).digest("hex");
-  if (fs.existsSync(file) && sha(fs.readFileSync(file)) === c.sha256) return JSON.parse(fs.readFileSync(file, "utf8"));
-  log(`Downloading circuit ${c.name} (one-time, ~${c.maxBodyLength > 4096 ? 9 : 4} MB)…`);
-  const res = await fetch(`${CIRCUIT_BASE}/${c.name}.json`);
-  if (!res.ok) die(`circuit download failed: HTTP ${res.status} ${CIRCUIT_BASE}/${c.name}.json`);
+const sha256hex = (b) => createHash("sha256").update(b).digest("hex");
+
+// Download (once) and cache a pinned artifact; refuses anything whose sha256 doesn't match.
+async function fetchPinned(set, relPath, sha256, label) {
+  const dir = path.join(process.env.REDACTED_CACHE || path.join(HERE, ".circuits"), set.ref.slice(0, 12));
+  const file = path.join(dir, relPath);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (fs.existsSync(file) && sha256hex(fs.readFileSync(file)) === sha256) return fs.readFileSync(file);
+  log(`Downloading ${label} (one-time)…`);
+  const url = `${set.base}/${relPath}`;
+  const res = await fetch(url);
+  if (!res.ok) die(`download failed: HTTP ${res.status} ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  if (sha(buf) !== c.sha256) die(`circuit ${c.name} sha256 mismatch — refusing to use it.`);
+  if (sha256hex(buf) !== sha256) die(`${label} sha256 mismatch — refusing to use it.`);
   fs.writeFileSync(file, buf);
+  return buf;
+}
+
+async function loadCircuit(c) {
+  const buf = await fetchPinned(c.set, c.file, c.sha256, `circuit ${c.name} v${c.set.version}`);
   return JSON.parse(buf.toString("utf8"));
 }
+
+const loadVk = async (c) => new Uint8Array(await fetchPinned(c.set, `vk/${c.name}.vk`, c.vkSha256, `verification key ${c.name}`));
 
 // ---------------------------------------------------------------------------------------------
 // masking
@@ -361,36 +412,71 @@ function render(s, mask) {
 // ---------------------------------------------------------------------------------------------
 // proof decoding + DKIM key binding
 
-function outputsOf(publicInputs, maxHeaderLength) {
+// v1 proofs carry no lengths: find the content end from the SHA-256 padding the input generator
+// leaves after it (0x80 at p, zeros, then the 64-bit bit-length 8·p at the end of that block).
+// REASON: the old "last 0x80 followed by zeros" heuristic picked the length field's own 0x80 byte
+// whenever len ≡ 16 (mod 32) and printed padding junk (tests/soundness.test.ts).
+function legacyContentLength(arr) {
+  for (let p = 0; p < arr.length; p++) {
+    if (arr[p] !== 0x80) continue;
+    const blockEnd = Math.ceil((p + 9) / 64) * 64;
+    if (blockEnd > arr.length) break;
+    let bits = 0n;
+    for (let k = blockEnd - 8; k < blockEnd; k++) bits = (bits << 8n) | BigInt(arr[k]);
+    if (bits === BigInt(p) * 8n && arr.slice(p + 1, blockEnd - 8).every((v) => v === 0)) return p;
+  }
+  let end = arr.length;
+  while (end > 0 && arr[end - 1] === 0) end--;
+  return end;
+}
+
+// Decode the masked header/body a proof publishes (0x00 = masked). v2 (prefix 5) commits to the
+// signed lengths and zeroes everything past them, so this is an exact slice.
+export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const byte = (x) => parseInt(String(x).slice(-2), 16);
-  const bytes = publicInputs.slice(2).map(byte);
-  const trim = (arr) => {
-    let end = arr.length;
-    while (end > 0 && arr[end - 1] === 0) end--;
-    // strip SHA-256 padding (0x80 … length) that the circuit carries along
-    for (let i = end - 1; i >= 0 && i >= end - 72; i--) {
-      if (arr[i] === 0x80 && arr.slice(i + 1, Math.max(i + 1, end - 8)).every((v) => v === 0)) {
-        end = i;
-        break;
-      }
-    }
-    return arr.slice(0, end);
-  };
-  const show = (arr) =>
-    Buffer.from(arr.map((v) => (v === 0 ? 0xff : v)))
-      .toString("latin1")
-      .replace(/\xff/g, "\u0000");
-  const header = show(trim(bytes.slice(0, maxHeaderLength)));
-  const body = show(trim(bytes.slice(maxHeaderLength)));
+  const bytes = publicInputs.slice(prefix).map(byte);
+  const headerBytes = bytes.slice(0, maxHeaderLength);
+  const bodyBytes = bytes.slice(maxHeaderLength);
+  let headerLen, bodyLen;
+  if (prefix === V2.prefix) {
+    headerLen = Number(BigInt(publicInputs[3]));
+    bodyLen = Number(BigInt(publicInputs[4]));
+    if (headerLen > headerBytes.length || bodyLen > bodyBytes.length) throw new Error("committed length exceeds circuit maximum");
+  } else {
+    headerLen = legacyContentLength(headerBytes);
+    bodyLen = legacyContentLength(bodyBytes);
+  }
+  const latin1 = (arr) => Buffer.from(arr).toString("latin1");
+  const header = latin1(headerBytes.slice(0, headerLen));
+  const body = latin1(bodyBytes.slice(0, bodyLen));
   const pretty = (s) => compact(Buffer.from(s, "latin1").toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
   return { header, body, headerText: pretty(header), bodyText: pretty(body) };
 }
 
-async function pubkeyHash(modulus, keyBits) {
+// REASON: noir-bignum >= v0.9 (used by the v2 circuits) defines the Barrett parameter as
+// floor(2^(2k + 6) / n). @mach-34/noir-bignum-paramgen, which @zk-email/zkemail-nr 2.0.0 uses to
+// build inputs, still uses 2^(2k + 4). That redc makes the in-circuit RSA witness computation
+// fail ("Failed to solve brillig function" in __barrett_reduction). Always use this helper for v2.
+// (bignum v0.10 notes redc only affects unconstrained witness computation, not soundness, and the
+// v2 circuit additionally commits to it.)
+const BARRETT_REDUCTION_OVERFLOW_BITS = 6n;
+function redcLimbsV2(bignum, modulus, keyBits) {
+  const redc = (1n << (2n * BigInt(keyBits) + BARRETT_REDUCTION_OVERFLOW_BITS)) / modulus;
+  return bignum.bnToLimbStrArray(redc);
+}
+
+// Expected key-hash public outputs for a DNS modulus. v2: [poseidon(modulus), poseidon(redc)] — redc
+// is derived from the modulus here, so a proof built with a forged redc cannot match. v1: one field.
+async function pubkeyHash(modulus, keyBits, version) {
   const { zk, bignum } = await lib();
   const limbs = bignum.bnToLimbStrArray(modulus, keyBits).map((x) => BigInt(x));
   const redc = bignum.bnToRedcLimbStrArray(modulus, keyBits).map((x) => BigInt(x));
-  if (keyBits === 2048) return await zk.hashRSAPublicKey(limbs, redc);
+  if (version === 2) {
+    const redcV2 = redcLimbsV2(bignum, modulus, keyBits).map((x) => BigInt(x));
+    const { modulusHash, redcHash } = await zk.hashRSAPublicKey(limbs, redcV2);
+    return [BigInt(modulusHash), BigInt(redcHash)];
+  }
+  if (keyBits === 2048) return [await legacyHash2048(limbs)];
   // Mirrors RSAPubkey<KEY_LIMBS_1024>::hash in zkemail.nr v.1.0.1-beta.5 (lib/src/dkim.nr).
   const { buildPoseidon } = await import("circomlibjs");
   const poseidon = await buildPoseidon();
@@ -401,7 +487,14 @@ async function pubkeyHash(modulus, keyBits) {
     pre[i + 4] = redc[i * 2] * s120 + redc[i * 2 + 1];
   }
   pre[8] = limbs[8] * s120 + redc[8];
-  return poseidon.F.toObject(poseidon(pre));
+  return [poseidon.F.toObject(poseidon(pre))];
+}
+
+// v1 2048-bit hash = poseidon_large(modulus) — same limb packing as zkemail-nr's hashRSAPublicKey
+// modulus half, so reuse it.
+async function legacyHash2048(limbs) {
+  const { zk } = await lib();
+  return BigInt((await zk.hashRSAPublicKey(limbs, limbs)).modulusHash);
 }
 
 function modulusFromP(p) {
@@ -443,8 +536,10 @@ async function candidateKeys(domain, selector) {
   return keys;
 }
 
-async function checkKeyBinding(publicInputs, headerText, keyBits) {
-  const want = BigInt(publicInputs[0]);
+async function checkKeyBinding(publicInputs, headerText, circuit) {
+  const { keyBits } = circuit;
+  const version = circuit.set.version;
+  const want = publicInputs.slice(0, version === 2 ? 2 : 1).map((x) => BigInt(x));
   const dkimLine = headerText.split("\n").find((l) => /^dkim-signature:/i.test(l)) || "";
   const tag = (t) => new RegExp(`(?:^|;|:)\\s*${t}=([^;]*)`).exec(dkimLine)?.[1]?.trim();
   const d = tag("d");
@@ -459,7 +554,8 @@ async function checkKeyBinding(publicInputs, headerText, keyBits) {
     if (!k.p) continue;
     const n = modulusFromP(k.p);
     if (!n) continue;
-    if ((await pubkeyHash(n, keyBits)) === want) {
+    const got = await pubkeyHash(n, keyBits, version);
+    if (got.length === want.length && got.every((v, i) => v === want[i])) {
       out.matched = k.source;
       break;
     }
@@ -483,6 +579,7 @@ async function cmdInspect(file, opts) {
     headerBytes: dkim.headers.length,
     bodyBytes: dkim.body.length,
     circuit: c.name,
+    circuitLimits: { maxHeaderBytes: c.maxHeaderLength, maxBodyBytes: c.maxBodyLength },
     signedHeaders: lines.map((l) => l.name),
   };
   if (opts.json) {
@@ -517,7 +614,7 @@ async function cmdProve(file, opts) {
   }
   if (opts["dry-run"]) return;
 
-  const { bb, noir, zk } = await lib();
+  const { bb, noir, zk, bignum } = await lib();
   const circuit = await loadCircuit(c);
   const pad = (arr, n) => (arr.length < n ? [...arr, ...new Array(n - arr.length).fill(1)] : arr.slice(0, n));
   const inputs = zk.generateEmailVerifierInputsFromDKIMResult(dkim, {
@@ -526,22 +623,35 @@ async function cmdProve(file, opts) {
     maxHeadersLength: c.maxHeaderLength,
     maxBodyLength: c.maxBodyLength,
   });
+  inputs.pubkey.redc = redcLimbsV2(bignum, dkim.publicKey, dkim.modulusLength);
   const threads = Number(process.env.REDACTED_THREADS) || Math.max(1, os.cpus().length);
+  const large = c.maxBodyLength > 8448;
   log(`Generating witness…`);
   const t0 = Date.now();
   const { witness } = await new noir.Noir(circuit).execute(inputs);
-  log(`Proving with UltraHonk (${threads} threads; typically 1–4 min, ~4 GB RAM)…`);
-  const backend = new bb.UltraHonkBackend(circuit.bytecode, { threads });
-  const proof = await backend.generateProof(witness);
-  log(`Proof generated in ${((Date.now() - t0) / 1000).toFixed(1)} s. Verifying locally…`);
-  const ok = await backend.verifyProof(proof);
-  await backend.destroy?.();
-  if (!ok) die("local verification of the fresh proof failed.");
+  log(
+    `Proving with UltraHonk (${threads} threads; ` +
+      (large ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…` : `typically under a minute, ~2 GB RAM)…`),
+  );
+  // In Node, bb.js 5 runs the native bb binary it ships (no 4 GB WebAssembly memory cap), which is
+  // what makes the 48 KB-body tier provable at all.
+  const api = await bb.Barretenberg.new({ threads });
+  let proof;
+  try {
+    proof = await new bb.UltraHonkBackend(circuit.bytecode, api).generateProof(witness);
+    log(`Proof generated in ${((Date.now() - t0) / 1000).toFixed(1)} s. Verifying against the pinned VK…`);
+    // Verify with the same pinned VK the website uses, so "valid here" means "valid there".
+    const ok = await new bb.UltraHonkVerifierBackend(api).verifyProof({ ...proof, verificationKey: await loadVk(c) });
+    if (!ok) die("local verification of the fresh proof failed.");
+  } finally {
+    await api.destroy();
+  }
 
   const record = {
-    format: "redacted-proof/v1",
+    format: "redacted-proof/v2",
     site: SITE,
     circuit: c.name,
+    circuitVersion: 2,
     circuitRef: CIRCUIT_REF,
     signingDomain: dkim.signingDomain,
     selector: dkim.selector,
@@ -561,7 +671,12 @@ async function cmdProve(file, opts) {
 }
 
 async function publishRecord(record) {
-  const body = JSON.stringify({ publicInputs: record.publicInputs, proof: record.proof });
+  // circuit/circuitVersion are hints for the verify page; it re-derives both from the proof shape.
+  const body = JSON.stringify({
+    publicInputs: record.publicInputs,
+    proof: record.proof,
+    ...(record.circuit ? { circuit: record.circuit, circuitVersion: record.circuitVersion ?? 1 } : {}),
+  });
   const post = async (p, json) => {
     const r = await fetch(`${API}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(json) });
     if (!r.ok) die(`${p} failed: HTTP ${r.status} ${await r.text()}`);
@@ -599,39 +714,65 @@ async function loadProofRef(ref) {
   return (await r.json()).proof;
 }
 
+async function verifyWith(c, proof) {
+  const { bb, bbLegacy } = await lib();
+  try {
+    if (c.set.version === 2) {
+      // v2: VK-only verification — no circuit download, milliseconds even for the large tier
+      const api = await bb.Barretenberg.new({ threads: 1 });
+      try {
+        return await new bb.UltraHonkVerifierBackend(api).verifyProof({ ...proof, verificationKey: await loadVk(c) });
+      } finally {
+        await api.destroy();
+      }
+    }
+    const legacy = await bbLegacy();
+    const backend = new legacy.UltraHonkBackend((await loadCircuit(c)).bytecode, { threads: Math.max(1, os.cpus().length) });
+    try {
+      return await backend.verifyProof(proof);
+    } finally {
+      await backend.destroy?.();
+    }
+  } catch {
+    return false;
+  }
+}
+
 async function cmdVerify(ref, opts) {
-  const { bb } = await lib();
   const rec = await loadProofRef(ref);
   const publicInputs = rec.publicInputs.map(String);
   const proof = { publicInputs, proof: Uint8Array.from(rec.proof) };
-  const bodyLen = publicInputs.length - 2 - 2048;
-  // rec.circuit is only a hint (try it first); any shape-matching circuit may verify. After
-  // that, 2048-bit DKIM keys are by far the most common today, so try those first.
-  const shape = CIRCUITS.filter((c) => c.maxBodyLength === bodyLen);
+  // The public-input count identifies version and tier (v1 and v2 shapes never collide).
+  // rec.circuit is only a hint (tried first); after it, 2048-bit keys — by far the most common.
+  const shape = [...V2.circuits, ...V1.circuits].filter((c) => shapeOf(c) === publicInputs.length);
   const named = shape.filter((c) => rec.circuit === c.name);
   const candidates = [...named, ...shape.filter((c) => !named.includes(c)).sort((a, b) => b.keyBits - a.keyBits)];
   if (!candidates.length) die(`unknown proof shape (${publicInputs.length} public inputs).`);
   let circuitUsed = null;
   for (const c of candidates) {
-    const circuit = await loadCircuit(c);
-    const backend = new bb.UltraHonkBackend(circuit.bytecode, { threads: Math.max(1, os.cpus().length) });
-    let ok = false;
-    try {
-      ok = await backend.verifyProof(proof);
-    } catch {
-      ok = false;
-    }
-    await backend.destroy?.();
-    if (ok) {
+    if (await verifyWith(c, proof)) {
       circuitUsed = c;
       break;
     }
   }
-  const outs = outputsOf(publicInputs, 2048);
-  const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.headerText, circuitUsed.keyBits) : null;
+  const layout = circuitUsed ?? candidates[0];
+  // REASON: the length fields of an UNVERIFIED proof are attacker-controlled; decoding may throw
+  // (length > circuit max). Report INVALID instead of crashing. Verified proofs never throw here.
+  let outs;
+  try {
+    outs = outputsOf(publicInputs, layout.set.prefix, layout.maxHeaderLength);
+  } catch (e) {
+    if (circuitUsed) throw e;
+    outs = { header: "", body: "", headerText: "(undecodable)", bodyText: "(undecodable)" };
+  }
+  const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.headerText, circuitUsed) : null;
+  // Every v1 proof is legacy: v1 could carry appended unsigned text, and 2048-bit v1 didn't bind redc.
+  const legacyUnbound = Boolean(circuitUsed && circuitUsed.set.version === 1);
   const result = {
     proofValid: Boolean(circuitUsed),
     circuit: circuitUsed?.name ?? null,
+    circuitVersion: circuitUsed?.set.version ?? null,
+    legacy: legacyUnbound,
     dkimDomain: binding?.domain ?? null,
     dkimSelector: binding?.selector ?? null,
     keyMatches: binding?.matched ?? null,
@@ -643,7 +784,12 @@ async function cmdVerify(ref, opts) {
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`proof: ${result.proofValid ? "VALID" : "INVALID"}${circuitUsed ? ` (${circuitUsed.name})` : ""}`);
+    console.log(`proof: ${result.proofValid ? "VALID" : "INVALID"}${circuitUsed ? ` (${circuitUsed.name}, circuit v${circuitUsed.set.version})` : ""}`);
+    if (legacyUnbound)
+      console.log(
+        "warning: LEGACY v1 proof. v1 circuits published bytes past the signed length, so a prover could append " +
+          "unsigned text; 2048-bit v1 also didn't bind the RSA redc parameter (zkemail.nr PR #62). Don't rely on it; ask for a v2 proof.",
+      );
     if (circuitUsed) {
       console.log(
         result.keyMatches
@@ -657,6 +803,7 @@ async function cmdVerify(ref, opts) {
   }
   if (!result.proofValid) process.exit(2);
   if (!result.keyMatches) process.exit(3);
+  if (legacyUnbound) process.exit(4);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -23,6 +23,8 @@ export default function VerifyPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{
     verified: boolean;
+    /** Valid legacy (v1) proof: shown as a warning, never as authentic. */
+    legacy?: boolean;
     message: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,13 +188,23 @@ export default function VerifyPage() {
     setVerificationStatus(null);
 
     try {
-      const isValid = await handleVerifyProof(proof);
+      const result = await handleVerifyProof(proof);
+      const isValid = result.valid;
 
       setVerificationStatus({
-        verified: isValid,
-        message: isValid
-          ? "Proof verified successfully! The email content is authentic."
-          : "Proof verification failed. The email content may have been tampered with.",
+        // REASON: a valid v1 proof may carry unsigned appended text, so it must not get the green
+        // banner or the "Authentic Mail" badge (PR #21 review).
+        verified: isValid && !result.legacy,
+        legacy: isValid && result.legacy,
+        message: !isValid
+          ? "Proof verification failed. The email content may have been tampered with."
+          : result.legacy
+            // v1 circuits published bytes past the signed length (a prover could append unsigned
+            // text) and, for 2048-bit keys, didn't bind redc. A valid v1 proof doesn't show
+            // that everything displayed was signed.
+            ? "Proof verified, but it was made with the legacy circuit from before a 2026 security fix, " +
+              "which could let a prover append unsigned text. Don't rely on it; ask the sender for a new proof."
+            : "Proof verified successfully! The email content is authentic.",
       });
       if (isValid) {
         trackEvent("proof_validation_success");
@@ -275,12 +287,18 @@ export default function VerifyPage() {
               className={`mb-6 p-4 rounded-lg ${
                 verificationStatus.verified
                   ? "bg-green-50 border border-green-200"
-                  : "bg-red-50 border border-red-200"
+                  : verificationStatus.legacy
+                    ? "bg-amber-50 border border-amber-300"
+                    : "bg-red-50 border border-red-200"
               }`}
             >
               <p
                 className={`text-center font-medium ${
-                  verificationStatus.verified ? "text-green-800" : "text-red-800"
+                  verificationStatus.verified
+                    ? "text-green-800"
+                    : verificationStatus.legacy
+                      ? "text-amber-900"
+                      : "text-red-800"
                 }`}
               >
                 {verificationStatus.message}

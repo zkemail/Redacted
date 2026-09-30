@@ -5,5 +5,7 @@ authors = ["Mach 34"]
 compiler_version = ">=1.0.0"
 
 [dependencies]
-zkemail = { tag = "v.1.0.1-beta.5", git = "https://github.com/zkemail/zkemail.nr", directory = "lib" }
-sha256 = { git = "https://github.com/noir-lang/sha256", tag = "v0.1.2" }
+# NOTE: vendored — see vendor/VENDORED.md. zkemail.nr v2.0.0 (the redc-binding security fix) does
+# not compile on Noir >= beta.19, and the base64 fix it needs is on noir_base64 main, untagged.
+zkemail = { path = "vendor/zkemail" }
+sha256 = { path = "vendor/sha256" }

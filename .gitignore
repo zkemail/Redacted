@@ -24,6 +24,8 @@ server/.env
 !tsconfig*.json
 !eslint.config.js
 !src/circuit/target/*.json
+!src/circuit/target/vk/*.vk
+!src/circuit/legacy-v1/*.json
 service-account*.json
 *-key.json
 

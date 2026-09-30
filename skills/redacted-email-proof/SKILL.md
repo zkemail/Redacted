@@ -11,7 +11,7 @@ Barretenberg prover as the website, locally**. The raw email is never uploaded a
 thing that leaves the machine, and only if you run `publish`, is the proof plus its public
 outputs: the masked header and body you previewed.
 
-## 0. Install once (Node 20+; about 400 MB of packages; the first install can take 2 to 5 minutes)
+## 0. Install once (Node 20+; the first install can take 2 to 5 minutes)
 
 ```bash
 curl -fsSL https://redacted.zk.email/skills/redacted-email-proof/install.sh | sh
@@ -20,8 +20,9 @@ R="node $HOME/.redacted-prover/redacted.mjs"
 ```
 
 If you have the repository, `cd skills/redacted-email-proof/scripts && npm install` works too. The
-circuit artifacts (4 to 9 MB each) are downloaded on first use from a pinned commit of
-github.com/zkemail/Redacted and checked against a sha256 hash.
+circuit artifacts and verification keys are downloaded on first use from a pinned commit of
+github.com/zkemail/Redacted and checked against a sha256 hash. In Node, bb.js runs its bundled
+native `bb` binary, so proving isn't limited by browser memory.
 
 ## 1. Get the ORIGINAL raw email
 
@@ -46,9 +47,19 @@ $R inspect email.eml          # add --json for machine-readable output
 ```
 
 This prints the signing domain and selector, key size, which circuit fits, the signed header
-names, and the **DKIM-canonical header and body**. Masks apply to those exact bytes. Limits: the
-signed header must be 2048 bytes or less, the canonical body 8448 bytes or less, and the key RSA
-1024 or 2048 bits. Short and plain-text emails fit best.
+names, and the **DKIM-canonical header and body**. Masks apply to those exact bytes. The CLI picks
+the smallest tier that fits (RSA 1024- or 2048-bit keys):
+
+| Tier | Max signed header | Max canonical body | Proving (CLI) |
+|---|---|---|---|
+| small | 2,048 B | 4,096 B | seconds, ~2 GB RAM |
+| mid | 2,048 B | 8,448 B | seconds, ~3 GB RAM |
+| large | 4,096 B | 49,152 B | ~1 min on 18 cores (longer on fewer), **~7 GB RAM** |
+
+The large-tier figures were measured on a 34 KB PayPal receipt: 58 s, 6.6 GB peak for the native `bb`.
+
+The website can prove small and mid in a browser. **Large is CLI-only**, but its proofs verify
+on the website like any other.
 
 ## 3. Decide with the user what to reveal, then preview it
 
@@ -83,8 +94,8 @@ $R prove email.eml <same mask flags> --out proof.json --publish  # + shareable l
 $R publish proof.json                                            # publish an existing proof later
 ```
 
-Proving takes about 1 to 4 minutes and needs about 4 GB of RAM. The proof is verified locally
-before anything is written. **Only use `--publish` when the user wants a public link.** It uploads `{publicInputs, proof}` to the Redacted API
+Proving time and memory depend on the tier (see the table above). The proof is verified locally
+against the same pinned verification key the website uses before anything is written. **Only use `--publish` when the user wants a public link.** It uploads `{publicInputs, proof}` to the Redacted API
 (no masks, no raw email), reads the proof back to check it arrived intact, and prints:
 
 ```
@@ -100,13 +111,21 @@ their browser). Add `--json` to get `{proofFile, verifyUrl, uuid, …}`.
 $R verify "https://redacted.zk.email/verify?id=<uuid>"   # or a uuid, or proof.json
 ```
 
-This checks the UltraHonk proof locally **and** checks that the proof's DKIM public-key hash
-equals the real key for the revealed `d=`/`s=`: first the live DNS record, then
-[archive.zk.email](https://archive.zk.email) for rotated keys. It also warns when the `From:`
-domain doesn't match the DKIM domain. Exit codes: 0 means the proof is valid and the key matches,
-2 means the proof is invalid, and 3 means the proof is valid but the key isn't matched (treat the
-sender as unproven). A valid proof alone only shows that *some* RSA key signed the content; the
-key match is what ties it to the sender's domain.
+This checks the UltraHonk proof locally **and** checks that the proof's DKIM key hashes (RSA
+modulus **and** reduction parameter) equal the real key for the revealed `d=`/`s=`: first the live
+DNS record, then [archive.zk.email](https://archive.zk.email) for rotated keys. It also warns when
+the `From:` domain doesn't match the DKIM domain.
+
+Exit codes:
+- 0: the proof is valid and the key matches.
+- 2: the proof is invalid.
+- 3: the proof is valid but the key isn't matched (treat the sender as unproven).
+- 4: a **legacy v1 proof** (made before the 2026-09 upgrade). Don't rely on it; ask for a new
+  proof. Those circuits published bytes past the signed length, so a prover could append unsigned
+  text. 2048-bit v1 also didn't bind the RSA reduction parameter (zkemail.nr PR #62).
+
+A valid proof alone only shows that *some* RSA key signed the content; the key match is what ties
+it to the sender's domain.
 
 ## Privacy checklist
 
@@ -122,7 +141,8 @@ key match is what ties it to the sender's domain.
 
 - `DKIM verification failed`: the file isn't the original raw message (see step 1), or the key was
   rotated and isn't in the archive. Try a newer email.
-- `canonical body is N bytes`: the email is too long for the circuits (8448-byte limit). Pick a
-  shorter or plain-text email.
-- Out of memory: close other programs or set `REDACTED_THREADS=4`.
+- `canonical body is N bytes`: the email is longer than the large tier (49,152-byte body,
+  4,096-byte header). Pick a shorter or plain-text email.
+- Out of memory: the large tier needs about 7 GB free. Close other programs or set
+  `REDACTED_THREADS=4`.
 - Point the CLI at another deployment with `REDACTED_SITE` / `REDACTED_API`.

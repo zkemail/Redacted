@@ -205,7 +205,7 @@ export default function MainApp() {
       console.error("Error generating proof:", error);
       trackEvent("proof_generation_failure");
       const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes("Unsupported DKIM key size")) {
+      if (errorMsg.includes("Unsupported DKIM key size") || errorMsg.includes("Email too long")) {
         setToast({ type: 'error', message: errorMsg });
       } else {
         setToast({ type: 'error', message: 'Failed to generate proof. Please try again.' });
@@ -228,8 +228,8 @@ export default function MainApp() {
     setVerificationStatus(null);
     
     try {
-      const isValid = await verifyProof(generatedProof);
-      
+      const { valid: isValid } = await verifyProof(generatedProof);
+
       if (isValid) {
         setVerificationStatus({
           verified: true,
