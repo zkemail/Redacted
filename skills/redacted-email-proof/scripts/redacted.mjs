@@ -216,12 +216,178 @@ export async function verifyWithSignerFallback(raw, verify, domain) {
   throw firstError;
 }
 
-async function dkimOf(emailBuf, domain) {
-  const { zk } = await lib();
+// REASON: @zk-email/helpers' verifyDKIMSignature resolves the key once (Google DoH; only if that
+// lookup FAILS, the first archive record for the selector). A sender that rotated its key but
+// reused the selector, or an archive with several keys per selector (amazon.com: 8 of 23), gave
+// "bad signature" although the signing key is known. Try every candidate: Google + Cloudflare DoH,
+// then all archived keys for the selector (most recently seen first). Keep in sync with
+// src/utils/dkimKeys.ts (tests/dkim-keys.test.ts checks both).
+export const DKIM_ARCHIVE_API = "https://archive.prove.email/api/key";
+
+async function helpers() {
   try {
-    // (email, domain, enableSanitization, fallbackToZKEmailDNSArchive) — the archive fallback
-    // lets old emails prove after the sender rotated its DKIM key.
-    return await verifyWithSignerFallback(emailBuf, (raw, d) => zk.verifyDKIMSignature(raw, d, true, true), domain);
+    const [verifier, tools, sanitizers, doh] = await Promise.all([
+      import("@zk-email/helpers/dist/lib/mailauth/dkim-verifier.js"),
+      import("@zk-email/helpers/dist/lib/mailauth/tools.js"),
+      import("@zk-email/helpers/dist/dkim/sanitizers.js"),
+      import("@zk-email/helpers/dist/dkim/dns-over-http.js"),
+    ]);
+    const d = (m) => m.default ?? m;
+    return { DkimVerifier: d(verifier).DkimVerifier, writeToStream: d(tools).writeToStream, sanitizers: d(sanitizers).default ?? d(sanitizers), DoH: d(doh).DoH, DoHServer: d(doh).DoHServer };
+  } catch (e) {
+    die(`dependencies missing (${e.message}).\nRun \`npm install\` in ${HERE} first.`);
+  }
+}
+
+const pOf = (record) => /(?:^|;)\s*p\s*=\s*([^;]*)/i.exec(record)?.[1]?.replace(/\s+/g, "") ?? "";
+
+// NOTE: archive.prove.email allows 10 requests/min per IP and answers 429 with a JSON error object
+// (the helper's own fallback crashes on it: "data.find is not a function"). Retry once after the
+// server's retryAfterSeconds (capped at 15 s), then report it instead of a misleading "bad signature".
+async function archiveKeys(domain, selector) {
+  const url = new URL(DKIM_ARCHIVE_API);
+  url.searchParams.set("domain", domain);
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url);
+    const body = await resp.json().catch(() => null);
+    if (Array.isArray(body)) {
+      return body
+        .filter((r) => r.selector === selector && typeof r.value === "string")
+        .sort((a, b) => String(b.lastSeenAt ?? "").localeCompare(String(a.lastSeenAt ?? "")))
+        .map((r) => ({ source: "archive", record: r.value, lastSeenAt: r.lastSeenAt }));
+    }
+    const wait = Number(body?.details?.retryAfterSeconds);
+    if (resp.status === 429 && attempt === 0 && wait > 0 && wait <= 15) {
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      continue;
+    }
+    throw new Error(resp.status === 429 ? "archive.prove.email rate limit (10/min per IP); retry in a minute" : `archive.prove.email HTTP ${resp.status}`);
+  }
+}
+
+/** Candidate keys: Google + Cloudflare DoH, plus (withArchive) every archived key; dedup by p=, revoked dropped. */
+export async function dkimKeyCandidates(name, withArchive = true) {
+  const { DoH, DoHServer } = await helpers();
+  const [selector, , ...rest] = name.split(".");
+  const domain = rest.join(".");
+  const dns = async (server, source) => {
+    try {
+      const record = await DoH.resolveDKIMPublicKey(name, server);
+      return record ? [{ source, record }] : [];
+    } catch {
+      return []; // one resolver being down must not hide keys the other sources have
+    }
+  };
+  let archiveError;
+  const archive = async () =>
+    withArchive
+      ? archiveKeys(domain, selector).catch((e) => {
+          archiveError = e.message;
+          return [];
+        })
+      : [];
+  const all = (await Promise.all([dns(DoHServer.Google, "dns:google"), dns(DoHServer.Cloudflare, "dns:cloudflare"), archive()])).flat();
+  const seen = new Set();
+  const out = all.filter((c) => {
+    const p = pOf(c.record);
+    if (!p || seen.has(p)) return false;
+    seen.add(p);
+    return true;
+  });
+  out.archiveError = archiveError;
+  return out;
+}
+
+async function runVerifier(h, email, domain, skipBodyHash, resolver) {
+  const v = new h.DkimVerifier({ resolver: async (name) => resolver(name), skipBodyHash });
+  await h.writeToStream(v, email);
+  let d = domain;
+  if (!d) {
+    if (v.headerFrom.length > 1) throw new Error("Multiple From header in email and domain for verification not specified");
+    d = v.headerFrom[0].split("@")[1];
+  }
+  const r = v.results.find((x) => x.signingDomain === d);
+  if (!r) throw new Error(`DKIM signature not found for domain ${d}`);
+  return r;
+}
+
+/** Same result shape as verifyDKIMSignature plus keySource; same error message when nothing verifies. */
+export async function verifyDkimWithKeyCandidates(email, domain = "", enableSanitization = true, skipBodyHash = false, resolveKeys = dkimKeyCandidates) {
+  const h = await helpers();
+  const emailStr = Buffer.isBuffer(email) || email instanceof Uint8Array ? Buffer.from(email).toString("latin1") : String(email);
+  let failure;
+  let archiveError;
+  // Phase 1: DNS keys only. Phase 2: archived keys, only when DNS keys fail for a key-related
+  // reason (the archive's 10 req/min limit; no key can fix a body-hash mismatch).
+  for (const withArchive of [false, true]) {
+    if (withArchive && failure && /body hash/i.test(failure.status.comment ?? "")) break;
+    const cache = new Map();
+    const keys = (name) => {
+      if (!cache.has(name)) {
+        cache.set(
+          name,
+          resolveKeys(name, withArchive).then((list) => {
+            archiveError ??= list.archiveError;
+            return withArchive ? list.filter((c) => c.source === "archive") : list;
+          }),
+        );
+      }
+      return cache.get(name);
+    };
+    // Round i serves candidate i for every selector in the message; stop past the longest list.
+    let rounds = 1;
+    let served = 0;
+    for (let i = 0; i < rounds; i++) {
+      const sourceOf = new Map();
+      const resolver = async (name) => {
+        const c = await keys(name);
+        rounds = Math.max(rounds, c.length);
+        if (!c.length) throw Object.assign(new Error(`No DKIM key found for ${name}`), { code: "ENODATA" });
+        const pick = c[Math.min(i, c.length - 1)];
+        sourceOf.set(name.toLowerCase(), pick.source);
+        served++;
+        return [pick.record];
+      };
+      let r = await runVerifier(h, email, domain, skipBodyHash, resolver);
+      let appliedSanitization;
+      if (r.status.comment === "bad signature" && enableSanitization) {
+        for (const sanitize of h.sanitizers) {
+          const s = await runVerifier(h, sanitize(emailStr), domain, skipBodyHash, resolver);
+          if (s.status.result === "pass") {
+            r = s;
+            appliedSanitization = sanitize.name;
+            break;
+          }
+        }
+      }
+      if (r.status.result === "pass") {
+        const n = createPublicKey(r.publicKey.toString()).export({ format: "jwk" }).n;
+        return {
+          signature: BigInt("0x" + Buffer.from(r.signature.replace(/\s+/g, ""), "base64").toString("hex")),
+          headers: r.status.signedHeaders,
+          body: r.body,
+          bodyHash: r.bodyHash,
+          signingDomain: r.signingDomain,
+          publicKey: BigInt("0x" + Buffer.from(n, "base64url").toString("hex")),
+          selector: r.selector,
+          algo: r.algo,
+          format: r.format,
+          modulusLength: r.modulusLength,
+          appliedSanitization,
+          keySource: sourceOf.get(`${r.selector}._domainkey.${r.signingDomain}`.toLowerCase()) ?? "unknown",
+        };
+      }
+      // report the DNS attempt unless an archived key was actually tried
+      if (!failure || (withArchive && served > 0)) failure = r;
+    }
+  }
+  const note = archiveError ? ` (${archiveError})` : "";
+  throw new Error(`DKIM signature verification failed for domain ${failure.signingDomain}. Reason: ${failure.status.comment}${note}`);
+}
+
+async function dkimOf(emailBuf, domain) {
+  try {
+    return await verifyWithSignerFallback(emailBuf, (raw, d) => verifyDkimWithKeyCandidates(raw, d), domain);
   } catch (e) {
     die(
       `DKIM verification failed: ${e.message}\n` +
@@ -718,6 +884,7 @@ async function cmdInspect(file, opts) {
     selector: dkim.selector,
     keyBits: dkim.modulusLength,
     sanitization: dkim.appliedSanitization || null,
+    keySource: dkim.keySource,
     headerBytes: dkim.headers.length,
     bodyBytes: dkim.body.length,
     bodyView: qp ? "quoted-printable (shown decoded; --hide/--reveal match decoded text)" : "raw",
@@ -744,7 +911,8 @@ async function cmdProve(file, opts) {
   const c = pickCircuit(dkim.modulusLength, dkim.headers.length, dkim.body.length);
   const m = buildMasks(dkim, opts);
 
-  log(`DKIM ok: d=${dkim.signingDomain} s=${dkim.selector} (${dkim.modulusLength}-bit) → circuit ${c.name}`);
+  log(`DKIM ok: d=${dkim.signingDomain} s=${dkim.selector} (${dkim.modulusLength}-bit, key from ${dkim.keySource}) → circuit ${c.name}`);
+  if (dkim.keySource === "archive") log("Note: the signing key is no longer served by DNS; it came from archive.prove.email.");
   log(`\n===== what the proof will reveal (${BLOCK} = hidden) =====\n`);
   log(render(m.h, m.headerMask));
   // quoted-printable bodies are previewed decoded, exactly as the verify page will show them
