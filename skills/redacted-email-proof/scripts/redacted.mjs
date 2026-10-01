@@ -742,11 +742,17 @@ export function domainsAligned(fromDomain, signingDomain) {
 // d=<tenant>.onmicrosoft.com. A Google label equal to the dashed From: domain ties the signature
 // to that domain's Workspace (Google signs only for its customers and only From: addresses they
 // verified); Microsoft tenant names aren't tied to domains, so those stay unproven.
+// NOTE: dots->dashes is ambiguous (bank.co.uk / bank-co.uk -> bank-co-uk) and Workspace's SMTP
+// relay can send any From:, so only one-dot From: domains (unambiguous) count as matched.
 // Same as src/utils/keyBinding.ts signerProvider (see its NOTE on the dots->dashes collision).
 export function signerProvider(fromDomain, signingDomain) {
   const d = signingDomain.toLowerCase();
   const g = /^([a-z0-9-]+)\.\d{8}\.gappssmtp\.com$/.exec(d);
-  if (g) return { kind: "google-workspace", tenant: g[1], matchesFrom: !!fromDomain && g[1] === fromDomain.toLowerCase().replace(/\./g, "-") };
+  if (g) {
+    const f = fromDomain?.toLowerCase() ?? "";
+    const unambiguous = f.split(".").length === 2;
+    return { kind: "google-workspace", tenant: g[1], matchesFrom: unambiguous && g[1] === f.replace(/\./g, "-") };
+  }
   const ms = /^([a-z0-9-]+)\.onmicrosoft\.com$/.exec(d);
   if (ms) return { kind: "microsoft-365", tenant: ms[1], matchesFrom: false };
   return null;

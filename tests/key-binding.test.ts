@@ -285,6 +285,9 @@ test("signerProvider: Google Workspace tenant label = dashed From: domain; Micro
     assert.equal(m.signerProvider("bank.example", "school-example.20230601.gappssmtp.com").matchesFrom, false, name);
     assert.equal(m.signerProvider(null, "school-example.20230601.gappssmtp.com").matchesFrom, false, name);
     assert.equal(m.signerProvider("my-site.example", "my-site-example.20150623.gappssmtp.com").matchesFrom, true, name);
+    // ambiguous: bank.co.uk and bank-co.uk both map to bank-co-uk, so neither may claim it
+    assert.equal(m.signerProvider("bank.co.uk", "bank-co-uk.20230601.gappssmtp.com").matchesFrom, false, name);
+    assert.equal(m.signerProvider("mail.bank.example", "mail-bank-example.20230601.gappssmtp.com").matchesFrom, false, name);
     assert.deepEqual(m.signerProvider("school.example", "school.onmicrosoft.com"),
       { kind: "microsoft-365", tenant: "school", matchesFrom: false }, name);
     assert.equal(m.signerProvider("bank.example", "esp.example"), null, name);
@@ -313,6 +316,9 @@ test("verify banner: Google Workspace signature for the From: domain is verified
   assert.equal(other.verified, false);
   assert.equal(other.warning, true);
   assert.match(other.message, /doesn't match the From: domain/);
+  const ambiguous = site.keyBindingStatus(workspaceBinding("bank.co.uk", "bank-co-uk.20230601.gappssmtp.com"));
+  assert.equal(ambiguous.verified, false);
+  assert.match(ambiguous.message, /would also match other domains/);
 });
 
 test("verify banner: Microsoft 365 tenant stays unproven, with a specific explanation", () => {

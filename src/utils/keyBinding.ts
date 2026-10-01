@@ -137,10 +137,12 @@ export interface SignerProvider {
  *    (school.example -> school-example.20230601.gappssmtp.com). Google signs that way only for its own
  *    Workspace customers, so a label equal to the dashed From: domain ties the signature to that
  *    domain's Workspace.
- *    NOTE: dots->dashes is not one-to-one (mail.bank.example and mail-bank.example both give
- *    mail-bank-example). Google also only sends From: addresses the account has verified (its own
- *    domains, or aliases confirmed by mail to that address), so a colliding tenant would still need
- *    to control the From: mailbox. Hence "matchesFrom", not plain alignment, and the banner names Google.
+ *    NOTE: dots->dashes is not one-to-one: bank.co.uk and bank-co.uk both give bank-co-uk, and
+ *    mail.bank.example / mail-bank.example both give mail-bank-example. Workspace's SMTP relay can be
+ *    set to send any From: address, so the owner of a colliding domain could produce this exact d=.
+ *    The mapping is only unambiguous when the From: domain has exactly one dot (a TLD can't contain
+ *    a plain hyphen), so matchesFrom is limited to those. Longer domains stay unproven with a
+ *    Google-specific explanation. (Same reasoning made zk-email-verify#324 keep gappssmtp opt-in.)
  *  - Microsoft 365 signs as d=<tenant>.onmicrosoft.com. The tenant name isn't derived from any
  *    domain and which domains a tenant owns isn't public, so the From: line stays unproven. The
  *    banner just explains the quirk.
@@ -148,7 +150,11 @@ export interface SignerProvider {
 export function signerProvider(fromDomain: string | null, signingDomain: string): SignerProvider | null {
   const d = signingDomain.toLowerCase();
   const g = /^([a-z0-9-]+)\.\d{8}\.gappssmtp\.com$/.exec(d);
-  if (g) return { kind: "google-workspace", tenant: g[1], matchesFrom: !!fromDomain && g[1] === fromDomain.toLowerCase().replace(/\./g, "-") };
+  if (g) {
+    const f = fromDomain?.toLowerCase() ?? "";
+    const unambiguous = f.split(".").length === 2;
+    return { kind: "google-workspace", tenant: g[1], matchesFrom: unambiguous && g[1] === f.replace(/\./g, "-") };
+  }
   const ms = /^([a-z0-9-]+)\.onmicrosoft\.com$/.exec(d);
   if (ms) return { kind: "microsoft-365", tenant: ms[1], matchesFrom: false };
   return null;
@@ -327,7 +333,11 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
       ? `${b.domain} is a Microsoft 365 tenant: Microsoft signs this way when a domain hasn't set up its own DKIM key. ` +
         "Which domains a tenant owns isn't public, so this can't be tied to the From: domain."
       : b.provider?.kind === "google-workspace"
-        ? `${b.domain} is Google Workspace signing for the Workspace "${b.provider.tenant}", which doesn't match the From: domain.`
+        ? b.from.domain && b.provider.tenant === b.from.domain.replace(/\./g, "-")
+          ? `${b.domain} is Google Workspace signing for "${b.provider.tenant}". That name matches ${b.from.domain}, but ` +
+            `Google writes dots as dashes, so it would also match other domains (e.g. ${b.from.domain.replace(/\.(?=[^.]*\.)/, "-")}); ` +
+            "the From: domain isn't proven."
+          : `${b.domain} is Google Workspace signing for the Workspace "${b.provider.tenant}", which doesn't match the From: domain.`
         : "This is often just how the sender's email service works: services that send mail on someone's behalf " +
           "commonly sign with their own domain.";
   return {
