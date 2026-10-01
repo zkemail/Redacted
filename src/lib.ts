@@ -237,9 +237,16 @@ export const handleGenerateProof = async (
   if (!headerMask.some((b) => b === 0)) {
     headerByteMask = new Array(dkimResult.headers.length).fill(1); // nothing hidden in the header
   } else if (headerMask.length !== headerUtf8.length) {
-    throw new Error("Header redactions don't line up with the signed header; reload the email and redact again.");
+    throw new Error("Redaction error: header redactions don't line up with the signed header; reload the email and redact again.");
   } else {
-    headerByteMask = charMaskToByteMask(headerUtf8, headerMask, dkimResult.headers.length);
+    try {
+      headerByteMask = charMaskToByteMask(headerUtf8, headerMask, dkimResult.headers.length);
+    } catch {
+      // NOTE: charMaskToByteMask's own message says "Body mask"; this is the header call site.
+      throw new Error(
+        `Redaction error: the signed header isn't valid UTF-8, so header redactions can't be mapped to its bytes. Use the command-line prover: ${CLI_URL}`
+      );
+    }
   }
   const config = selectCircuit(dkimResult.modulusLength, dkimResult.headers.length, dkimResult.body.length);
   const circuit = await loadCircuit(config);

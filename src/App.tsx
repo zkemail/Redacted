@@ -220,7 +220,8 @@ export default function MainApp() {
       console.error("Error generating proof:", error);
       trackEvent("proof_generation_failure");
       const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes("Unsupported DKIM key size") || errorMsg.includes("Email too long")) {
+      // "Redaction error:" (lib.ts) is deterministic for this email, so show it rather than "try again".
+      if (errorMsg.includes("Unsupported DKIM key size") || errorMsg.includes("Email too long") || errorMsg.startsWith("Redaction error:")) {
         setToast({ type: 'error', message: errorMsg });
       } else {
         setToast({ type: 'error', message: 'Failed to generate proof. Please try again.' });
