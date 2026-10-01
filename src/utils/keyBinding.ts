@@ -120,6 +120,40 @@ export function domainsAligned(fromDomain: string, signingDomain: string): boole
   return f === d || f.endsWith("." + d) || d.endsWith("." + f);
 }
 
+export interface SignerProvider {
+  kind: "google-workspace" | "microsoft-365";
+  /** the tenant label in d= */
+  tenant: string;
+  /** the tenant provably belongs to the From: domain */
+  matchesFrom: boolean;
+}
+
+/**
+ * Mail platforms that sign customer mail with their own domain when the customer hasn't set up
+ * DKIM for its domain.
+ * REASON: plain domain alignment calls these "From: not proven", although for Google Workspace the
+ * d= names the customer's domain:
+ *  - Google Workspace signs as d=<from-domain, dots as dashes>.<yyyymmdd>.gappssmtp.com
+ *    (school.example -> school-example.20230601.gappssmtp.com). Google signs that way only for its own
+ *    Workspace customers, so a label equal to the dashed From: domain ties the signature to that
+ *    domain's Workspace.
+ *    NOTE: dots->dashes is not one-to-one (mail.bank.example and mail-bank.example both give
+ *    mail-bank-example). Google also only sends From: addresses the account has verified (its own
+ *    domains, or aliases confirmed by mail to that address), so a colliding tenant would still need
+ *    to control the From: mailbox. Hence "matchesFrom", not plain alignment, and the banner names Google.
+ *  - Microsoft 365 signs as d=<tenant>.onmicrosoft.com. The tenant name isn't derived from any
+ *    domain and which domains a tenant owns isn't public, so the From: line stays unproven. The
+ *    banner just explains the quirk.
+ */
+export function signerProvider(fromDomain: string | null, signingDomain: string): SignerProvider | null {
+  const d = signingDomain.toLowerCase();
+  const g = /^([a-z0-9-]+)\.\d{8}\.gappssmtp\.com$/.exec(d);
+  if (g) return { kind: "google-workspace", tenant: g[1], matchesFrom: !!fromDomain && g[1] === fromDomain.toLowerCase().replace(/\./g, "-") };
+  const ms = /^([a-z0-9-]+)\.onmicrosoft\.com$/.exec(d);
+  if (ms) return { kind: "microsoft-365", tenant: ms[1], matchesFrom: false };
+  return null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // key binding
 
@@ -194,6 +228,10 @@ export interface KeyBinding {
   from: ReturnType<typeof fromAddress>;
   /** From: domain aligned with the matched signing domain; null when there is no match */
   fromAligned: boolean | null;
+  /** how fromAligned was established */
+  alignedVia?: "domain" | "google-workspace";
+  /** the signer is a mail platform's domain (Google Workspace, Microsoft 365) */
+  provider?: SignerProvider | null;
   /** archive lookup failed (e.g. its 10 req/min limit); an unmatched result may be a false negative */
   archiveError?: string;
 }
@@ -237,13 +275,20 @@ export async function bindDkimKey(
             domain,
             selector,
             keySource: k.source,
-            fromAligned: from.domain ? domainsAligned(from.domain, domain) : false,
+            ...alignmentOf(from.domain, domain),
           };
         }
       }
     }
   }
   return result;
+}
+
+function alignmentOf(fromDomain: string | null, signingDomain: string) {
+  const provider = signerProvider(fromDomain, signingDomain);
+  if (fromDomain && domainsAligned(fromDomain, signingDomain)) return { fromAligned: true, alignedVia: "domain" as const, provider };
+  if (provider?.matchesFrom) return { fromAligned: true, alignedVia: "google-workspace" as const, provider };
+  return { fromAligned: false, provider };
 }
 
 /** Banner for a verified v2 proof, from its DKIM key binding. Used by the verify page; tested in tests/key-binding.test.ts. */
@@ -262,6 +307,15 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
   }
   const keyFrom = b.keySource === "archive" ? "the DKIM key archive (no longer in DNS)" : "DNS";
   const key = `the DKIM key published at ${b.selector}._domainkey.${b.domain} (${keyFrom})`;
+  if (b.fromAligned && b.alignedVia === "google-workspace") {
+    return {
+      verified: true,
+      message:
+        `Proof verified. Signed by Google Workspace for ${b.from.domain}: the proof's key matches ${key}. ` +
+        `Google signs as ${b.domain} for Workspace domains that haven't set up their own DKIM key, and the ` +
+        `signature names ${b.from.domain}'s Workspace.`,
+    };
+  }
   if (b.fromAligned) {
     return { verified: true, message: `Proof verified. Signed by ${b.domain}: the proof's key matches ${key}, and the From: address is on that domain.` };
   }
@@ -269,8 +323,13 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
   // school/church/HR systems) send on a company's behalf and sign with THEIR domain. Say exactly
   // which domain signed and which key matched, and that the From: line itself isn't proven.
   const quirk =
-    "This is often just how the sender's email service works: services that send mail on someone's behalf " +
-    "commonly sign with their own domain.";
+    b.provider?.kind === "microsoft-365"
+      ? `${b.domain} is a Microsoft 365 tenant: Microsoft signs this way when a domain hasn't set up its own DKIM key. ` +
+        "Which domains a tenant owns isn't public, so this can't be tied to the From: domain."
+      : b.provider?.kind === "google-workspace"
+        ? `${b.domain} is Google Workspace signing for the Workspace "${b.provider.tenant}", which doesn't match the From: domain.`
+        : "This is often just how the sender's email service works: services that send mail on someone's behalf " +
+          "commonly sign with their own domain.";
   return {
     verified: false,
     warning: true,
