@@ -1114,12 +1114,15 @@ async function cmdProve(file, opts) {
   const threads = Number(process.env.REDACTED_THREADS) || Math.max(1, os.cpus().length);
   const large = c.maxBodyLength > 8448;
   const xl = c.maxBodyLength > 48000;
+  const xxl = c.maxBodyLength > 100352;
   log(`Generating witness…`);
   const t0 = Date.now();
   const { witness } = await new noir.Noir(circuit).execute(inputs);
   log(
     `Proving with UltraHonk (${threads} threads; ` +
-      (xl
+      (xxl
+        ? `XXL tier: ~2-3 min on 12+ cores, longer on fewer, ~23 GB RAM, needs a 32 GB+ machine)…`
+        : xl
         ? `XL tier: ~2-4 min on 16+ cores, longer on fewer, ~14 GB RAM, needs a 16 GB+ machine)…`
         : large
           ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…`

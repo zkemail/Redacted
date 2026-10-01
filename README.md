@@ -41,9 +41,9 @@ $R verify "https://redacted.zk.email/verify?id=…"       # proof check + DKIM k
 ```
 
 - It uses the same circuits as the site: pinned by commit, and each artifact and verification key is checked against its sha256 before use.
-- It proves emails with bodies up to **100,352 bytes**. The "large" and "xl" tiers are CLI-only. Bodies over 8,448 bytes need about 7 GB of RAM and about a minute on a recent laptop, and bodies over 48,000 bytes need about 14 GB (a 16 GB+ machine) and a couple of minutes.
+- It proves emails with bodies up to **200,704 bytes**. The "large", "xl" and "xxl" tiers are CLI-only. Bodies over 8,448 bytes need about 7 GB of RAM and about a minute on a recent laptop, bodies over 48,000 bytes need about 14 GB (a 16 GB+ machine) and a couple of minutes, and bodies over 100,352 bytes need about 23 GB (a 32 GB+ machine) and 2–3 minutes on 12+ cores.
 - `publish` sends only `{publicInputs, proof}`. The raw email and the mask arrays are never sent.
-- `verify` also checks that the proof's DKIM public-key hash matches the key published in DNS (or in [archive.zk.email](https://archive.zk.email)) for the revealed `d=`/`s=`. The web verify page doesn't do that check yet.
+- `verify` also checks that the proof's DKIM public-key hash matches the key published in DNS (or in [archive.zk.email](https://archive.zk.email)) for the revealed `d=`/`s=`. The web verify page does the same check (#26).
 - Agents that fetch the site find the skill through `/llms.txt`, a `<link rel="alternate">` to `SKILL.md`, and a static block in `index.html`. Humans see it in the "For AI agents" section on the home page.
 - Install as a Claude Code / agent skill: `npx skills add zkemail/Redacted`, or copy `skills/redacted-email-proof` into your agent's skills directory.
 
@@ -95,6 +95,7 @@ selects the smallest circuit that fits your email:
 | `email_mask_{1024,2048}_mid` | 1024 / 2048-bit | 2 KB | 8.4 KB | browser or CLI |
 | `email_mask_{1024,2048}_large` | 1024 / 2048-bit | 4 KB | 48,000 B | CLI only (~7 GB RAM, ~1 min) |
 | `email_mask_{1024,2048}_xl` | 1024 / 2048-bit | 4 KB | 100,352 B | CLI only (~14 GB RAM (16 GB+ machine), ~2–4 min) |
+| `email_mask_{1024,2048}_xxl` | 1024 / 2048-bit | 4 KB | 200,704 B | CLI only (~23 GB RAM (32 GB+ machine), ~2–3 min on 12+ cores) |
 
 Verification uses precomputed verification keys (`src/circuit/target/vk/`), so it takes seconds in
 the browser for every tier.
