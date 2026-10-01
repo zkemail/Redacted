@@ -57,7 +57,7 @@ the smallest tier that fits (RSA 1024- or 2048-bit keys):
 | large | 4,096 B | 48,000 B | ~1 min on 18 cores (longer on fewer), **~7 GB RAM** |
 | xl | 4,096 B | 100,352 B | ~2–4 min on 18 cores (longer on fewer), **~14 GB RAM** (16 GB+ machine) |
 
-The large-tier figures were measured on a 34 KB PayPal receipt: 58 s, 6.6 GB peak for the native
+The large-tier figures were measured on a real 34 KB receipt: 58 s, 6.6 GB peak for the native
 `bb`. XL figures were measured on 87.6 KB and 94.9 KB receipts (loaded machine; faster idle). Peak
 memory is the kernel's lifetime physical footprint of the `bb` process (`/usr/bin/time -l`): large
 7.4 GB, XL 13.7 GB (18-core M-series Mac, 2026-09-29).
