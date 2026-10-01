@@ -44,7 +44,8 @@ export function headerFieldValueRanges(header: string, name: string): { start: n
  * Mark the hidden characters of `value` (fieldBits[i] === 0 hides value[i]) in `out`, a mask
  * aligned with `header`. Every `name:` field is searched, with folds (CRLF before SP/HTAB)
  * skipped. If the value can't be found but the user hid ALL of it, the whole field value is
- * hidden instead. Returns false if a redaction could not be placed anywhere.
+ * hidden instead. A field that isn't signed is trivially placed (the proof doesn't contain it).
+ * Returns false if a redaction of a signed field could not be placed.
  */
 export function placeHeaderFieldMask(
   header: string,
@@ -54,9 +55,14 @@ export function placeHeaderFieldMask(
   out: number[]
 ): boolean {
   if (!fieldBits.some((b) => b === 0)) return true;
+  const ranges = headerFieldValueRanges(header, name);
+  // REASON: a field the sender didn't sign (not in DKIM h=) isn't in the signed header, so the
+  // proof never publishes it and there is nothing to hide. Found on the private-emls corpus: 17 of
+  // 63 verifiable emails don't sign Date, 1 doesn't sign To; refusing those would be a false alarm.
+  if (ranges.length === 0) return true;
   const hideAll = value.length > 0 && fieldBits.length >= value.length && fieldBits.slice(0, value.length).every((b) => b === 0);
   let placed = false;
-  for (const { start, end } of headerFieldValueRanges(header, name)) {
+  for (const { start, end } of ranges) {
     // Unfolded view of the field value and each view character's position in `header`.
     let view = "";
     const at: number[] = [];

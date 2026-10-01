@@ -54,8 +54,10 @@ test("relaxed headers still work, every occurrence is covered, and unplaceable r
   assert.equal(hidden(relaxed, m2), "=?UTF-8?B?Q2Fmw6k=?=");
   // ...but a partial redaction of it can't be placed, and says so
   assert.equal(placeHeaderFieldMask(relaxed, "subject", "Café", [1, 1, 0, 0], new Array(relaxed.length).fill(1)), false);
-  // a field that isn't signed at all
-  assert.equal(placeHeaderFieldMask(relaxed, "date", "Tue", [0, 0, 0], new Array(relaxed.length).fill(1)), false);
+  // a field that isn't signed at all: the proof doesn't publish it, so there's nothing to hide
+  const m3 = new Array(relaxed.length).fill(1);
+  assert.equal(placeHeaderFieldMask(relaxed, "date", "Tue", [0, 0, 0], m3), true);
+  assert.ok(m3.every((b) => b === 1), "and nothing else is hidden");
   // nothing to hide is trivially placed
   assert.equal(placeHeaderFieldMask(relaxed, "date", "Tue", [1, 1, 1], new Array(relaxed.length).fill(1)), true);
 });
