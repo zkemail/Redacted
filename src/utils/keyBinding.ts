@@ -261,9 +261,9 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
     };
   }
   const keyFrom = b.keySource === "archive" ? "the DKIM key archive (no longer in DNS)" : "DNS";
-  const key = `the DKIM key at ${b.selector}._domainkey.${b.domain}, from ${keyFrom}`;
+  const key = `the DKIM key published at ${b.selector}._domainkey.${b.domain} (${keyFrom})`;
   if (b.fromAligned) {
-    return { verified: true, message: `Proof verified. Signed by ${b.domain} (${key}); the From: address is on that domain.` };
+    return { verified: true, message: `Proof verified. Signed by ${b.domain}: the proof's key matches ${key}, and the From: address is on that domain.` };
   }
   // REASON: an unaligned From is usually innocent. Mailing services (newsletters, receipts,
   // school/church/HR systems) send on a company's behalf and sign with THEIR domain. Say exactly
@@ -275,13 +275,13 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
     verified: false,
     warning: true,
     message: b.from.hidden
-      ? `Proof verified. The DKIM signing domain is ${b.domain} (${key} matches), but the From: address is hidden, ` +
+      ? `Proof verified and signed by ${b.domain} (the proof's key matches ${key}), but the From: address is hidden, ` +
         `so it isn't proven to be on ${b.domain}.`
       : b.from.domain
-        ? `Proof verified, but the From: domain (${b.from.domain}) is not the DKIM signing domain. It was signed by ` +
-          `${b.domain}: ${key} matches. ${quirk} ${b.domain} vouches for this email; the From: address ` +
-          `${b.from.address} is not proven.`
-        : `Proof verified. The DKIM signing domain is ${b.domain} (${key} matches), but the From: address can't be ` +
+        ? `Proof verified, but the From: domain (${b.from.domain}) is not the DKIM signing domain (${b.domain}). ` +
+          `The proof's key matches ${key}, so ${b.domain} signed it. ${quirk} ${b.domain} vouches for this email; ` +
+          `the From: address ${b.from.address} is not proven.`
+        : `Proof verified and signed by ${b.domain} (the proof's key matches ${key}), but the From: address can't be ` +
           `read, so it isn't proven.`,
   };
 }
