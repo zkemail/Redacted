@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { handleVerifyProof, extractMaskedDataFromProof } from "../lib";
+import { canonicalPublicInputs } from "../utils/proofOutputs";
+import { bindDkimKey, keyBindingStatus, type KeyBinding } from "../utils/keyBinding";
 import { fetchProofData } from "../utils/urlEncoder";
 import { parseMaskedHeader } from "../utils/headerParser";
 import MaskedText from "../components/MaskedText";
@@ -22,11 +24,15 @@ export default function VerifyPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{
+    /** green banner + "Authentic Mail": valid proof, key published by d=, From: aligned with d= */
     verified: boolean;
-    /** Valid legacy (v1) proof: shown as a warning, never as authentic. */
-    legacy?: boolean;
+    /** amber banner: valid proof whose sender isn't fully proven (legacy v1, From: not aligned) */
+    warning?: boolean;
     message: string;
   } | null>(null);
+  const [keyBinding, setKeyBinding] = useState<KeyBinding | null>(null);
+  // Raw masked header (0x00 = masked) exactly as the proof commits to it; d=/s= and From: are read from it.
+  const [maskedHeaderRaw, setMaskedHeaderRaw] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [proof, setProof] = useState<{
     publicInputs: string[];
@@ -98,16 +104,17 @@ export default function VerifyPage() {
                   if (typeof arr === 'string') {
                     return arr;
                   }
+                  // NOTE: "0x" matters. A bare hex string would be read as DECIMAL by bb.js's BigInt().
                   if (Array.isArray(arr)) {
                     const hexString = arr.map((b: any) => {
                       const num = typeof b === 'number' ? b : parseInt(b, 10);
                       return num.toString(16).padStart(2, '0');
                     }).join('');
-                    return hexString;
+                    return '0x' + hexString;
                   }
                   if (arr instanceof Uint8Array) {
                     const hexString = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-                    return hexString;
+                    return '0x' + hexString;
                   }
                   throw new Error(`Unexpected publicInput type at index ${idx}: ${typeof arr}`);
                 }),
@@ -141,6 +148,12 @@ export default function VerifyPage() {
         if (!decodedProof.proof || !(decodedProof.proof instanceof Uint8Array)) {
           throw new Error('Invalid proof: proof is not a Uint8Array');
         }
+        // One canonical encoding for everything below: what is displayed is what gets verified.
+        try {
+          decodedProof = { ...decodedProof, publicInputs: canonicalPublicInputs(decodedProof.publicInputs) };
+        } catch (e) {
+          throw new Error(`Invalid proof: ${e instanceof Error ? e.message : String(e)}. Its outputs can't be shown or verified.`);
+        }
 
         setProof(decodedProof);
 
@@ -154,6 +167,8 @@ export default function VerifyPage() {
         // Debug: log raw header output from proof
         console.log('[VERIFY] Raw masked header from proof (first 500 chars):', maskedData.maskedHeader.substring(0, 500));
         console.log('[VERIFY] Full masked header:', maskedData.maskedHeader);
+
+        setMaskedHeaderRaw(maskedData.maskedHeader);
 
         // Parse the masked header into structured fields
         const parsedHeader = parseMaskedHeader(maskedData.maskedHeader);
@@ -191,28 +206,36 @@ export default function VerifyPage() {
 
     try {
       const result = await handleVerifyProof(proof);
-      const isValid = result.valid;
-
-      setVerificationStatus({
+      setKeyBinding(null);
+      if (!result.valid) {
+        setVerificationStatus({
+          verified: false,
+          message: "Proof verification failed. The email content may have been tampered with.",
+        });
+        trackEvent("proof_validation_failure", { reason: "invalid_or_corrupted" });
+        return;
+      }
+      trackEvent("proof_validation_success");
+      if (result.legacy) {
         // REASON: a valid v1 proof may carry unsigned appended text, so it must not get the green
         // banner or the "Authentic Mail" badge (PR #21 review).
-        verified: isValid && !result.legacy,
-        legacy: isValid && result.legacy,
-        message: !isValid
-          ? "Proof verification failed. The email content may have been tampered with."
-          : result.legacy
-            // v1 circuits published bytes past the signed length (a prover could append unsigned
-            // text) and, for 2048-bit keys, didn't bind redc. A valid v1 proof doesn't show
-            // that everything displayed was signed.
-            ? "Proof verified, but it was made with the legacy circuit from before a 2026 security fix, " +
-              "which could let a prover append unsigned text. Don't rely on it; ask the sender for a new proof."
-            : "Proof verified successfully! The email content is authentic.",
-      });
-      if (isValid) {
-        trackEvent("proof_validation_success");
-      } else {
-        trackEvent("proof_validation_failure", { reason: "invalid_or_corrupted" });
+        setVerificationStatus({
+          verified: false,
+          warning: true,
+          message:
+            "Proof verified, but it was made with the legacy circuit from before a 2026 security fix, " +
+            "which could let a prover append unsigned text. Don't rely on it; ask the sender for a new proof.",
+        });
+        return;
       }
+      // REASON (security review finding 1): a valid proof only says SOME RSA key signed these
+      // bytes. The signer is proven only if that key is the one d=/s= publish, and the From: only
+      // if it is on the signing domain. Before this check, a proof made with a self-generated key
+      // for "From: ceo@anybank.com" got the green banner.
+      const binding = await bindDkimKey(proof.publicInputs, maskedHeaderRaw, result.keyBits!);
+      setKeyBinding(binding);
+      setVerificationStatus(keyBindingStatus(binding));
+      trackEvent(binding.matched ? "proof_key_matched" : "proof_key_unmatched");
     } catch (err) {
       console.error("Error verifying proof:", err);
       setVerificationStatus({
@@ -289,7 +312,7 @@ export default function VerifyPage() {
               className={`mb-6 p-4 rounded-lg ${
                 verificationStatus.verified
                   ? "bg-green-50 border border-green-200"
-                  : verificationStatus.legacy
+                  : verificationStatus.warning
                     ? "bg-amber-50 border border-amber-300"
                     : "bg-red-50 border border-red-200"
               }`}
@@ -298,7 +321,7 @@ export default function VerifyPage() {
                 className={`text-center font-medium ${
                   verificationStatus.verified
                     ? "text-green-800"
-                    : verificationStatus.legacy
+                    : verificationStatus.warning
                       ? "text-amber-900"
                       : "text-red-800"
                 }`}
@@ -318,6 +341,19 @@ export default function VerifyPage() {
                   <span className="text-gray-500 w-20 flex-shrink-0">From:</span>
                   <MaskedText text={maskedHeader.from} className="text-[#111314]" />
                 </div>
+
+                {/* Signing domain: shown once the DKIM key is checked */}
+                {keyBinding?.matched && (
+                  <div className="flex">
+                    <span className="text-gray-500 w-20 flex-shrink-0">Signed by:</span>
+                    <span className="text-[#111314]">
+                      {keyBinding.domain}{" "}
+                      <span className="text-gray-500 text-sm">
+                        (s={keyBinding.selector}, key from {keyBinding.keySource === "archive" ? "the DKIM key archive" : "DNS"})
+                      </span>
+                    </span>
+                  </div>
+                )}
 
                 {/* To */}
                 <div className="flex">
@@ -509,3 +545,4 @@ function Header({ navigate, onShare }: { navigate: (path: string) => void; onSha
     </>
   );
 }
+

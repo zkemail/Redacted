@@ -14,7 +14,6 @@
  * Run `node redacted.mjs help` for every option.
  */
 import { createHash, createPublicKey } from "node:crypto";
-import { promises as dns } from "node:dns";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -658,10 +657,96 @@ function legacyContentLength(arr) {
   return end;
 }
 
+// Mirrors src/utils/proofOutputs.ts canonicalPublicInputs (tests/key-binding.test.ts checks both).
+// REASON (security review finding 2): bb.js parses public inputs with BigInt(), which also takes
+// decimal ("65") or whitespace ("0x41 "), while the byte decoder read the last two characters as
+// hex: a proof over "ABCD" verified with ["65","66","67","68"] and printed "efgh". Verify and
+// decode ONE canonical array: "0x" + 64 hex digits, below the field modulus.
+export const BN254_FIELD_MODULUS = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001n;
+export function canonicalPublicInputs(inputs) {
+  if (!Array.isArray(inputs)) throw new Error("public inputs are not an array");
+  return inputs.map((x, i) => {
+    if (typeof x !== "string" || !/^0x[0-9a-fA-F]{1,64}$/.test(x)) throw new Error(`public input ${i} is not a 0x-prefixed hex field element`);
+    const v = BigInt(x);
+    if (v >= BN254_FIELD_MODULUS) throw new Error(`public input ${i} is not below the field modulus`);
+    return "0x" + v.toString(16).padStart(64, "0");
+  });
+}
+
+// Header parsing for the key check. Mirrors src/utils/keyBinding.ts (headerFields,
+// dkimSignatureDomains, fromAddress, domainsAligned); tests/key-binding.test.ts checks both.
+const HIDDEN_RE = /[\u0000\u2588]/;
+export function headerFields(headerText) {
+  return headerText
+    .replace(/\r?\n(?=[ \t])/g, "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const colon = line.indexOf(":");
+      return colon > 0 ? { name: line.slice(0, colon).trim().toLowerCase(), value: line.slice(colon + 1) } : null;
+    })
+    .filter(Boolean);
+}
+// REASON (security review finding 6): the old check read d=/s= from the first PHYSICAL line of the
+// first DKIM-Signature only. c=simple signatures are folded (d= often on a later line) and a header
+// can carry several signatures. A candidate only matches if its domain publishes the exact key the
+// proof was made with, so trying every one can't make a forged proof match.
+export function dkimSignatureDomains(headerText) {
+  const out = [];
+  for (const f of headerFields(headerText)) {
+    if (f.name !== "dkim-signature") continue;
+    const tags = new Map();
+    for (const part of f.value.split(";")) {
+      const eq = part.indexOf("=");
+      if (eq >= 0) tags.set(part.slice(0, eq).trim(), part.slice(eq + 1).replace(/\s+/g, ""));
+    }
+    const domain = tags.get("d")?.toLowerCase();
+    const selector = tags.get("s");
+    if (!domain || !selector || HIDDEN_RE.test(domain) || HIDDEN_RE.test(selector)) continue;
+    if (!out.some((p) => p.domain === domain && p.selector === selector)) out.push({ domain, selector });
+  }
+  return out;
+}
+// REASON (security review finding 4): the old check took the first "@" of the From line, so
+// `From: "ceo@esp.example" <ceo@bank.example>` counted as aligned with d=esp.example. Parse it like
+// RFC 5322: skip comments and quoted display names; the last <angle-addr> wins.
+export function fromAddress(headerText) {
+  const froms = headerFields(headerText).filter((f) => f.name === "from");
+  if (froms.length !== 1) return { address: null, domain: null, hidden: false };
+  const value = froms[0].value;
+  let outside = "", angle = null, current = null, quoted = false, comment = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (quoted) { if (c === "\\") i++; else if (c === '"') quoted = false; continue; }
+    if (comment > 0) { if (c === "\\") i++; else if (c === "(") comment++; else if (c === ")") comment--; continue; }
+    if (c === '"') quoted = true;
+    else if (c === "(") comment = 1;
+    else if (c === "<") current = "";
+    else if (c === ">" && current !== null) { angle = current; current = null; }
+    else if (current !== null) current += c;
+    else outside += c;
+  }
+  const address = (angle ?? outside).trim();
+  if (HIDDEN_RE.test(address)) return { address: null, domain: null, hidden: true };
+  const at = address.lastIndexOf("@");
+  const domain = at > 0 ? address.slice(at + 1).toLowerCase() : "";
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return { address: null, domain: null, hidden: false };
+  return { address, domain, hidden: false };
+}
+export function domainsAligned(fromDomain, signingDomain) {
+  const f = fromDomain.toLowerCase(), d = signingDomain.toLowerCase();
+  return f === d || f.endsWith("." + d) || d.endsWith("." + f);
+}
+
 // Decode the masked header/body a proof publishes (0x00 = masked). v2 (prefix 5) commits to the
 // signed lengths and zeroes everything past them, so this is an exact slice.
+// Throws on non-canonical inputs (see canonicalPublicInputs).
 export function outputsOf(publicInputs, prefix, maxHeaderLength) {
-  const byte = (x) => parseInt(String(x).slice(-2), 16);
+  publicInputs = canonicalPublicInputs(publicInputs);
+  const byte = (x) => {
+    const v = BigInt(x);
+    if (v > 0xffn) throw new Error("byte output out of range");
+    return Number(v);
+  };
   const bytes = publicInputs.slice(prefix).map(byte);
   const headerBytes = bytes.slice(0, maxHeaderLength);
   const bodyBytes = bytes.slice(maxHeaderLength);
@@ -773,7 +858,7 @@ function circuitInputs(zk, dkim, params) {
 
 // Expected key-hash public outputs for a DNS modulus. v2: [poseidon(modulus), poseidon(redc)] — redc
 // is derived from the modulus here, so a proof built with a forged redc cannot match. v1: one field.
-async function pubkeyHash(modulus, keyBits, version) {
+export async function pubkeyHash(modulus, keyBits, version) {
   const { zk, bignum } = await lib();
   const limbs = bignum.bnToLimbStrArray(modulus, keyBits).map((x) => BigInt(x));
   const redc = bignum.bnToRedcLimbStrArray(modulus, keyBits).map((x) => BigInt(x));
@@ -816,54 +901,32 @@ function modulusFromP(p) {
   return null;
 }
 
-async function candidateKeys(domain, selector) {
-  const keys = [];
-  try {
-    const recs = await dns.resolveTxt(`${selector}._domainkey.${domain}`);
-    for (const r of recs) {
-      const p = /(?:^|;)\s*p=([^;]*)/.exec(r.join(""))?.[1];
-      if (p) keys.push({ source: `DNS ${selector}._domainkey.${domain} (live)`, p });
-    }
-  } catch (e) {
-    keys.push({ source: `DNS lookup failed: ${e.code || e.message}`, p: null });
-  }
-  try {
-    const res = await fetch(`https://archive.zk.email/api/key?domain=${encodeURIComponent(domain)}`);
-    if (res.ok) {
-      for (const k of await res.json()) {
-        if (k.selector !== selector) continue;
-        const p = /(?:^|;)\s*p=([^;]*)/.exec(k.value || "")?.[1];
-        if (p) keys.push({ source: `archive.zk.email ${selector}/${domain} (first seen ${k.firstSeenAt?.slice(0, 10) ?? "?"}, last seen ${k.lastSeenAt?.slice(0, 10) ?? "?"})`, p });
-      }
-    }
-  } catch {
-    /* archive is best-effort */
-  }
-  return keys;
-}
-
-async function checkKeyBinding(publicInputs, headerText, circuit) {
+// `header` is the raw masked header (latin1, 0x00 = masked), not the pretty-printed text.
+// Keys come from dkimKeyCandidates: DNS-over-HTTPS (Google, Cloudflare) for every revealed
+// d=/s= first, then the archive (10 requests/min per IP) only if none match.
+// NOTE: DoH, not the system resolver: an HTTPS answer can't be spoofed by the local network, and
+// it is the same lookup the prover and the verify page use.
+export async function checkKeyBinding(publicInputs, header, circuit, resolveKeys = dkimKeyCandidates) {
   const { keyBits } = circuit;
   const version = circuit.set.version;
   const want = publicInputs.slice(0, version === 2 ? 2 : 1).map((x) => BigInt(x));
-  const dkimLine = headerText.split("\n").find((l) => /^dkim-signature:/i.test(l)) || "";
-  const tag = (t) => new RegExp(`(?:^|;|:)\\s*${t}=([^;]*)`).exec(dkimLine)?.[1]?.trim();
-  const d = tag("d");
-  const s = tag("s");
-  const from = headerText.split("\n").find((l) => /^from:/i.test(l)) || "";
-  const out = { domain: d, selector: s, matched: null, tried: [], fromAligned: null };
-  if (!d || !s || d.includes(BLOCK) || s.includes(BLOCK)) return out;
-  const fromDomain = /@([A-Za-z0-9.-]+)/.exec(from)?.[1]?.toLowerCase();
-  if (fromDomain) out.fromAligned = fromDomain === d.toLowerCase() || fromDomain.endsWith("." + d.toLowerCase());
-  for (const k of await candidateKeys(d, s)) {
-    out.tried.push(k.source);
-    if (!k.p) continue;
-    const n = modulusFromP(k.p);
-    if (!n) continue;
-    const got = await pubkeyHash(n, keyBits, version);
-    if (got.length === want.length && got.every((v, i) => v === want[i])) {
-      out.matched = k.source;
-      break;
+  const pairs = dkimSignatureDomains(header);
+  const from = fromAddress(header);
+  const out = { domain: pairs[0]?.domain, selector: pairs[0]?.selector, candidates: pairs, matched: null, tried: [], from, fromAligned: null, archiveError: null };
+  for (const withArchive of [false, true]) {
+    for (const { domain: d, selector: s } of pairs) {
+      const name = `${s}._domainkey.${d}`;
+      const keys = await resolveKeys(name, withArchive).catch(() => []);
+      out.archiveError ??= keys.archiveError ?? null;
+      for (const k of withArchive ? keys.filter((c) => c.source === "archive") : keys) {
+        out.tried.push(`${k.source} ${name}${k.lastSeenAt ? ` (last seen ${String(k.lastSeenAt).slice(0, 10)})` : ""}`);
+        const n = modulusFromP(pOf(k.record));
+        if (!n) continue;
+        const got = await pubkeyHash(n, keyBits, version);
+        if (got.length === want.length && got.every((v, i) => v === want[i])) {
+          return { ...out, domain: d, selector: s, matched: out.tried.at(-1), fromAligned: from.domain ? domainsAligned(from.domain, d) : false };
+        }
+      }
     }
   }
   return out;
@@ -1062,7 +1125,14 @@ async function verifyWith(c, proof) {
 
 async function cmdVerify(ref, opts) {
   const rec = await loadProofRef(ref);
-  const publicInputs = rec.publicInputs.map(String);
+  let publicInputs;
+  try {
+    publicInputs = canonicalPublicInputs(rec.publicInputs);
+  } catch (e) {
+    // Not a proof whose outputs can be shown faithfully: report it invalid (exit 2).
+    console.log(opts.json ? JSON.stringify({ proofValid: false, error: e.message }, null, 2) : `proof: INVALID (${e.message})`);
+    process.exit(2);
+  }
   const proof = { publicInputs, proof: Uint8Array.from(rec.proof) };
   // The public-input count identifies version and tier (v1 and v2 shapes never collide).
   // rec.circuit is only a hint (tried first); after it, 2048-bit keys — by far the most common.
@@ -1087,7 +1157,7 @@ async function cmdVerify(ref, opts) {
     if (circuitUsed) throw e;
     outs = { header: "", body: "", headerText: "(undecodable)", bodyText: "(undecodable)" };
   }
-  const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.headerText, circuitUsed) : null;
+  const binding = circuitUsed ? await checkKeyBinding(publicInputs, outs.header, circuitUsed) : null;
   // Every v1 proof is legacy: v1 could carry appended unsigned text, and 2048-bit v1 didn't bind redc.
   const legacyUnbound = Boolean(circuitUsed && circuitUsed.set.version === 1);
   const result = {
@@ -1097,8 +1167,11 @@ async function cmdVerify(ref, opts) {
     legacy: legacyUnbound,
     dkimDomain: binding?.domain ?? null,
     dkimSelector: binding?.selector ?? null,
+    dkimCandidates: binding?.candidates ?? [],
     keyMatches: binding?.matched ?? null,
     keysTried: binding?.tried ?? [],
+    fromAddress: binding?.from?.address ?? null,
+    fromHidden: binding?.from?.hidden ?? false,
     fromAlignedWithDkimDomain: binding?.fromAligned ?? null,
     maskedHeader: outs.headerText,
     maskedBody: outs.bodyText,
@@ -1113,19 +1186,37 @@ async function cmdVerify(ref, opts) {
           "unsigned text; 2048-bit v1 also didn't bind the RSA redc parameter (zkemail.nr PR #62). Don't rely on it; ask for a v2 proof.",
       );
     if (circuitUsed) {
+      const pairs = result.dkimCandidates.map((c) => `d=${c.domain} s=${c.selector}`).join(", ");
       console.log(
         result.keyMatches
           ? `dkim key: matches ${result.keyMatches} → signed by ${result.dkimDomain}`
-          : `dkim key: NOT matched to any published key for d=${result.dkimDomain} s=${result.dkimSelector} ` +
-              `(tried: ${result.keysTried.join("; ") || "none"}). Treat the sender as unproven.`,
+          : !result.dkimCandidates.length
+            ? "dkim key: NOT checked: no DKIM-Signature with visible d= and s=. Treat the sender as unproven."
+            : `dkim key: NOT matched to any published key for ${pairs} ` +
+              `(tried: ${result.keysTried.join("; ") || "no key found"}${binding.archiveError ? `; archive: ${binding.archiveError}` : ""}). Treat the sender as unproven.`,
       );
-      if (result.fromAlignedWithDkimDomain === false) console.log(`warning: From: domain is not the DKIM signing domain.`);
+      if (result.keyMatches && result.fromAlignedWithDkimDomain === false) {
+        // REASON: usually innocent (a mailing service signing with its own domain), so name the
+        // signing domain and the matching key, and say that only the From: line is unproven.
+        const signer = `DKIM signing domain is ${result.dkimDomain} (key ${result.dkimSelector}._domainkey.${result.dkimDomain} matches)`;
+        console.log(
+          result.fromHidden
+            ? `warning: the ${signer}, but the From: address is hidden, so it isn't proven to be on ${result.dkimDomain}.`
+            : result.fromAddress
+              ? `warning: From: ${result.fromAddress} is on ${binding.from.domain}, but the ${signer}. This is often a quirk ` +
+                `of the sender's email service (it signs with its own domain), but the From: address is NOT proven.`
+              : `warning: the ${signer}, but the From: address can't be read, so it isn't proven.`,
+        );
+      }
     }
     console.log("\n----- masked header -----\n" + outs.headerText + "\n----- masked body -----\n" + outs.bodyText);
   }
   if (!result.proofValid) process.exit(2);
   if (!result.keyMatches) process.exit(3);
   if (legacyUnbound) process.exit(4);
+  // REASON (security review finding 4): a key match proves who SIGNED (d=), not the From: line.
+  // ESP-signed mail (d=esp.example) can carry any From:, so an unaligned or hidden From is a failure.
+  if (!result.fromAlignedWithDkimDomain) process.exit(5);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -121,6 +121,10 @@ if (!bucketName) {
 
 const bucket = storage.bucket(bucketName);
 
+// REASON: uuids become GCS object paths (eml/{uuid}/…). Only accept what /api/generate-uuid
+// issues, so a client can't pick arbitrary object names.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 // Generate a UUID for a new email/proof pair
 app.post('/api/generate-uuid', async (req, res) => {
   try {
@@ -143,10 +147,26 @@ app.post('/api/get-proof-upload-url', async (req, res) => {
     if (!uuid) {
       return res.status(400).json({ error: 'UUID is required' });
     }
+    if (typeof uuid !== 'string' || !UUID_RE.test(uuid)) {
+      return res.status(400).json({ error: 'Invalid UUID' });
+    }
 
     // Store proof in the same folder: eml/{uuid}/proof.json
     const filename = `eml/${uuid}/proof.json`;
     const file = bucket.file(filename);
+
+    // REASON (security review finding 5): the uuid is public (it's in every verify link), and a
+    // signed PUT URL overwrites whatever is there. Without this check anyone holding a link could
+    // get an upload URL for it and replace the proof (and metadata) the link shows. A published
+    // proof is immutable: once proof.json exists, no new upload URL is issued.
+    // NOTE: a precondition on the signed URL itself (x-goog-if-generation-match: 0) would also
+    // close the 15-minute window of an already-issued URL, but browsers must then send that
+    // header, which needs a bucket CORS change (server/setup-cors.js) deployed first. Only the
+    // uuid's creator holds such a URL, so this check covers the "anyone with the link" case.
+    const [alreadyUploaded] = await file.exists();
+    if (alreadyUploaded) {
+      return res.status(409).json({ error: 'A proof was already uploaded for this UUID; published proofs cannot be replaced' });
+    }
 
     // Generate a signed URL for PUT upload (valid for 15 minutes)
     const [url] = await file.getSignedUrl({
@@ -191,6 +211,9 @@ app.post('/api/get-proof-upload-url', async (req, res) => {
 app.get('/api/get-data/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
+    if (!UUID_RE.test(uuid)) {
+      return res.status(400).json({ error: 'Invalid UUID' });
+    }
     const proofFilename = `eml/${uuid}/proof.json`;
     const metadataFilename = `eml/${uuid}/metadata.json`;
 
@@ -255,7 +278,8 @@ app.get('/api/get-data/:uuid', async (req, res) => {
             }
             return num.toString(16).padStart(2, '0');
           }).join('');
-          return hexString;
+          // NOTE: "0x" matters. A bare hex string would be read as DECIMAL by bb.js's BigInt().
+          return '0x' + hexString;
         }
         throw new Error(`Invalid publicInput type at index ${idx}: ${typeof arr}`);
       });
