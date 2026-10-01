@@ -197,7 +197,10 @@ test("key binding: ESP-signed mail is signed by d=, but a From: on another domai
   const status = site.keyBindingStatus(b);
   assert.equal(status.verified, false);
   assert.equal(status.warning, true);
-  assert.match(status.message, /not the From: domain bank\.example/);
+  // names the From domain, the signing domain and the matching key, and the email-service quirk
+  assert.match(status.message, /From: domain \(bank\.example\) is not the DKIM signing domain/);
+  assert.match(status.message, /signed by esp\.example: the DKIM key at sel\._domainkey\.esp\.example, from DNS matches/);
+  assert.match(status.message, /email service/);
   const c = await cli.checkKeyBinding(pi, header, { keyBits: 2048, set: { version: 2 } }, dns);
   assert.ok(c.matched);
   assert.equal(c.fromAligned, false, "the display-name address must not count as aligned");

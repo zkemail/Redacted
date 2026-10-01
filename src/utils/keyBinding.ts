@@ -260,18 +260,28 @@ export function keyBindingStatus(b: KeyBinding): { verified: boolean; warning?: 
           "checked. The sender is NOT proven.",
     };
   }
-  const via = b.keySource === "archive" ? " (key from the DKIM key archive; no longer in DNS)" : "";
+  const keyFrom = b.keySource === "archive" ? "the DKIM key archive (no longer in DNS)" : "DNS";
+  const key = `the DKIM key at ${b.selector}._domainkey.${b.domain}, from ${keyFrom}`;
   if (b.fromAligned) {
-    return { verified: true, message: `Proof verified. Signed by ${b.domain}${via}; the From: address is on that domain.` };
+    return { verified: true, message: `Proof verified. Signed by ${b.domain} (${key}); the From: address is on that domain.` };
   }
+  // REASON: an unaligned From is usually innocent. Mailing services (newsletters, receipts,
+  // school/church/HR systems) send on a company's behalf and sign with THEIR domain. Say exactly
+  // which domain signed and which key matched, and that the From: line itself isn't proven.
+  const quirk =
+    "This is often just how the sender's email service works: services that send mail on someone's behalf " +
+    "commonly sign with their own domain.";
   return {
     verified: false,
     warning: true,
     message: b.from.hidden
-      ? `Proof verified and signed by ${b.domain}${via}, but the From: address is hidden, so it isn't proven to be from ${b.domain}.`
+      ? `Proof verified. The DKIM signing domain is ${b.domain} (${key} matches), but the From: address is hidden, ` +
+        `so it isn't proven to be on ${b.domain}.`
       : b.from.domain
-        ? `Proof verified and signed by ${b.domain}${via}, which is not the From: domain ${b.from.domain}. ` +
-          `${b.domain} sent this, but the From: address is not proven.`
-        : `Proof verified and signed by ${b.domain}${via}, but the From: address can't be read, so it isn't proven.`,
+        ? `Proof verified, but the From: domain (${b.from.domain}) is not the DKIM signing domain. It was signed by ` +
+          `${b.domain}: ${key} matches. ${quirk} ${b.domain} vouches for this email; the From: address ` +
+          `${b.from.address} is not proven.`
+        : `Proof verified. The DKIM signing domain is ${b.domain} (${key} matches), but the From: address can't be ` +
+          `read, so it isn't proven.`,
   };
 }

@@ -1195,14 +1195,19 @@ async function cmdVerify(ref, opts) {
             : `dkim key: NOT matched to any published key for ${pairs} ` +
               `(tried: ${result.keysTried.join("; ") || "no key found"}${binding.archiveError ? `; archive: ${binding.archiveError}` : ""}). Treat the sender as unproven.`,
       );
-      if (result.keyMatches && result.fromAlignedWithDkimDomain === false)
+      if (result.keyMatches && result.fromAlignedWithDkimDomain === false) {
+        // REASON: usually innocent (a mailing service signing with its own domain), so name the
+        // signing domain and the matching key, and say that only the From: line is unproven.
+        const signer = `DKIM signing domain is ${result.dkimDomain} (key ${result.dkimSelector}._domainkey.${result.dkimDomain} matches)`;
         console.log(
           result.fromHidden
-            ? `warning: the From: address is hidden, so it isn't proven to be on ${result.dkimDomain}.`
+            ? `warning: the ${signer}, but the From: address is hidden, so it isn't proven to be on ${result.dkimDomain}.`
             : result.fromAddress
-              ? `warning: From: ${result.fromAddress} is not on the DKIM signing domain ${result.dkimDomain}; the From: address is NOT proven.`
-              : `warning: the From: address can't be read, so it isn't proven to be on ${result.dkimDomain}.`,
+              ? `warning: From: ${result.fromAddress} is on ${binding.from.domain}, but the ${signer}. This is often a quirk ` +
+                `of the sender's email service (it signs with its own domain), but the From: address is NOT proven.`
+              : `warning: the ${signer}, but the From: address can't be read, so it isn't proven.`,
         );
+      }
     }
     console.log("\n----- masked header -----\n" + outs.headerText + "\n----- masked body -----\n" + outs.bodyText);
   }
