@@ -89,3 +89,14 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
   DKIM sweep therefore misreports ~30 emails as failures. When sweeping, space archive calls
   ≥6.5 s apart (wrap `fetch`), or interleave them with proving. Always compare before and after
   runs under the same pacing.
+
+## Type errors are deploy blockers, never "pre-existing noise"
+- Render deploys redacted.zk.email from a Dockerfile that runs `yarn build` = `tsc -b && vite build`.
+  One type error fails the deploy *silently*: production keeps serving the last good build and nothing alerts.
+- Between 2026-10-01 and 10-04, five errors from #26 blocked every deploy, so #26's security
+  fixes and #29 were "merged" but not live. They had shown up locally and were dismissed as
+  environment noise because CI was green: CI ran `tsc --noEmit` on the root tsconfig (`files: []`),
+  which checks nothing. CI now runs `tsc -b`.
+- After merging, confirm the deploy: the Render service is `srv-d4tfnou3jp1c73eegmeg` (ZK Email
+  workspace key `render-api-key-zkemail-team`, `GET /v1/services/<id>/deploys`). Or check that a string
+  from the change appears in the live `/assets/*.js` bundle.
