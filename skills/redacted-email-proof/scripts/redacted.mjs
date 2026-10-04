@@ -562,17 +562,33 @@ function headerLines(h) {
   return lines.filter((l) => l.name);
 }
 
-// Byte ranges of text/html MIME parts in a raw body ([start, end) of each part's content).
-// Parts are found from their delimiter lines ("--<boundary>"), so nested multiparts work too.
-export function htmlPartRanges(body) {
+// Content byte ranges ([start, end)) of MIME parts of one media type (e.g. "text/html"), found
+// from their delimiter lines ("--<boundary>"), so nested multiparts work too. Part headers are
+// excluded: only the content after each part's blank line counts.
+export function mimePartRanges(body, type) {
   const delims = [...body.matchAll(/(?:^|\r\n)--[^\r\n\s]{1,200}(?=\r\n|$)/g)].map((m) => m.index + (m[0].startsWith("\r\n") ? 2 : 0));
+  const re = new RegExp(`^content-type:\\s*${type.replace("/", "\\/")}`, "im");
   const out = [];
   for (let i = 0; i < delims.length; i++) {
     const partStart = body.indexOf("\r\n", delims[i]) + 2;
     const headersEnd = body.indexOf("\r\n\r\n", partStart);
     const partEnd = i + 1 < delims.length ? delims[i + 1] : body.length;
     if (partStart < 2 || headersEnd < 0 || headersEnd > partEnd) continue;
-    if (/^content-type:\s*text\/html/im.test(body.slice(partStart, headersEnd))) out.push([headersEnd + 4, partEnd]);
+    if (re.test(body.slice(partStart, headersEnd))) out.push([headersEnd + 4, partEnd]);
+  }
+  return out;
+}
+export const htmlPartRanges = (body) => mimePartRanges(body, "text/html");
+
+// Every match of `matcher` in the body (raw, quoted-printable and base64 views), as byte spans
+// plus the matched (decoded) text, so reveals can be deduplicated per passage.
+function matchSpans(s, matcher) {
+  const out = [];
+  for (const view of viewsOf(s)) {
+    for (const [a, b] of matcher(view.text)) {
+      const [lo, hi] = view.span ? view.span(a, b) : [view.map(a)[0], view.map(b - 1)[1]];
+      out.push({ lo, hi, text: view.text.slice(a, b).replace(/\s+/g, " ").trim() });
+    }
   }
   return out;
 }
@@ -618,21 +634,30 @@ export function buildMasks(dkim, opts) {
 
   // reveals first, hides last: hides always win
   // REASON: multipart/alternative mail carries the same message twice, as text/plain and as
-  // text/html. Revealing a sentence in both publishes it twice, the second time wrapped in markup
+  // text/html. Revealing a passage in both publishes it twice, the second time wrapped in markup
   // and entities ("can&#39;t"), which is noisy and reveals the HTML structure around it for nothing.
-  // So when a reveal matches outside the HTML part, its copies inside HTML parts stay hidden
-  // (--reveal-all-parts keeps both). Text that only exists in the HTML part is still revealed there.
+  // Deduplicated PER MATCH: an HTML match is skipped only when the same matched text also occurs
+  // in real text/plain content (not MIME headers or attachments, which aren't a readable copy).
+  // HTML-only passages, including other matches of the same regex, are still revealed.
+  // --reveal-all-parts keeps every copy.
   const html = htmlPartRanges(b);
-  const inHtml = (k) => html.some(([lo, hi]) => k >= lo && k < hi);
+  const plain = mimePartRanges(b, "text/plain");
+  const within = (ranges, lo, hi) => ranges.some(([s0, e0]) => lo >= s0 && hi <= e0);
   const reveal = (label, matcher) => {
-    const plain = applyMatches(bodyMask, b, matcher, 1, opts["reveal-all-parts"] || !html.length ? {} : { region: (k) => !inHtml(k) });
-    if (plain && html.length && !opts["reveal-all-parts"]) {
-      if (applyMatches(new Array(b.length), b, matcher, 1, { region: inHtml })) {
-        warnings.push(`${label}: also in the HTML part; revealed only in the plain-text part (--reveal-all-parts reveals both)`);
+    const spans = matchSpans(b, matcher);
+    const plainTexts = new Set(spans.filter((m) => within(plain, m.lo, m.hi)).map((m) => m.text));
+    let revealed = 0;
+    let skipped = 0;
+    for (const m of spans) {
+      if (!opts["reveal-all-parts"] && within(html, m.lo, m.hi) && plainTexts.has(m.text)) {
+        skipped++;
+        continue;
       }
-      return plain;
+      for (let k = m.lo; k < m.hi; k++) bodyMask[k] = 1;
+      revealed++;
     }
-    return plain || applyMatches(bodyMask, b, matcher, 1);
+    if (skipped) warnings.push(`${label}: ${skipped} copy(ies) in the HTML part left hidden; the same text is revealed in the plain-text part (--reveal-all-parts reveals both)`);
+    return revealed;
   };
   for (const t of [].concat(opts.reveal || [])) {
     if (!reveal(`--reveal "${t}"`, literalMatcher(needleLatin1(t)))) warnings.push(`--reveal "${t}" not found in body`);
