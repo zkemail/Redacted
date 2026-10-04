@@ -74,8 +74,8 @@ DKIM signatures from a domain other than `From:` (ESPs like ccsend.com, subdomai
 email.airbnb.com) and `c=simple` header canonicalization are both supported. `verify` prints the
 signing `d=` and warns when it isn't the `From:` domain.
 
-The website can prove small and mid in a browser. **Large and XL are CLI-only**, but their proofs
-verify on the website like any other (XL in about 7 s).
+The website can prove small and mid in a browser. **Large, XL and XXL are CLI-only**, but their
+proofs verify on the website like any other (XL in about 7 s, XXL in about 6 s).
 
 ## 3. Decide with the user what to reveal, then preview it
 
