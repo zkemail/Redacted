@@ -83,7 +83,7 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
 - Keys come from `src/utils/dkimKeys.ts` (a copy lives in the CLI). It tries Google + Cloudflare
   DoH first, then every archived key for the selector. `@zk-email/helpers` alone tries one DNS
   key, and only the first archived key, and only if the DNS lookup fails. That missed 12 of 132
-  corpus emails whose keys were rotated under the same selector (mostly Amazon/SES).
+  corpus emails whose keys were rotated under the same selector.
 - archive.prove.email allows **10 requests/min per IP**. On a 429 it returns an error object, and
   the helper's own fallback crashes ("data.find is not a function"). An unpaced corpus
   DKIM sweep therefore misreports ~30 emails as failures. When sweeping, space archive calls

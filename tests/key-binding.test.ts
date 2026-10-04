@@ -275,3 +275,55 @@ test("real proofs: non-canonical inputs, key match, forged key, unaligned From (
     await api.destroy();
   }
 });
+
+// Google Workspace / Microsoft 365 sign customer mail with their own domain when the customer has
+// no DKIM key of its own (see signerProvider). Shape: From school.example, d=school-example.20230601.gappssmtp.com.
+test("signerProvider: Google Workspace tenant label = dashed From: domain; Microsoft 365 never ties", () => {
+  for (const [name, m] of both) {
+    assert.deepEqual(m.signerProvider("school.example", "school-example.20230601.gappssmtp.com"),
+      { kind: "google-workspace", tenant: "school-example", matchesFrom: true }, name);
+    assert.equal(m.signerProvider("bank.example", "school-example.20230601.gappssmtp.com").matchesFrom, false, name);
+    assert.equal(m.signerProvider(null, "school-example.20230601.gappssmtp.com").matchesFrom, false, name);
+    assert.equal(m.signerProvider("my-site.example", "my-site-example.20150623.gappssmtp.com").matchesFrom, true, name);
+    // ambiguous: bank.co.uk and bank-co.uk both map to bank-co-uk, so neither may claim it
+    assert.equal(m.signerProvider("bank.co.uk", "bank-co-uk.20230601.gappssmtp.com").matchesFrom, false, name);
+    assert.equal(m.signerProvider("mail.bank.example", "mail-bank-example.20230601.gappssmtp.com").matchesFrom, false, name);
+    assert.deepEqual(m.signerProvider("school.example", "school.onmicrosoft.com"),
+      { kind: "microsoft-365", tenant: "school", matchesFrom: false }, name);
+    assert.equal(m.signerProvider("bank.example", "esp.example"), null, name);
+    // not Google's shape: no 8-digit date label, or another parent domain
+    assert.equal(m.signerProvider("school.example", "school-example.gappssmtp.com"), null, name);
+    assert.equal(m.signerProvider("school.example", "school-example.20230601.gappssmtp.com.evil.example"), null, name);
+  }
+});
+
+const workspaceBinding = (fromDomain: string, d: string) => {
+  const p = site.signerProvider(fromDomain, d);
+  const aligned = site.domainsAligned(fromDomain, d) || !!p?.matchesFrom;
+  return {
+    matched: true, domain: d, selector: "20230601", keySource: "dns:google",
+    candidates: [{ domain: d, selector: "20230601" }],
+    from: { address: `principal@${fromDomain}`, domain: fromDomain, hidden: false },
+    fromAligned: aligned, alignedVia: aligned ? ("google-workspace" as const) : undefined, provider: p,
+  };
+};
+
+test("verify banner: Google Workspace signature for the From: domain is verified and says so", () => {
+  const s = site.keyBindingStatus(workspaceBinding("school.example", "school-example.20230601.gappssmtp.com"));
+  assert.equal(s.verified, true);
+  assert.match(s.message, /Google Workspace for school\.example/);
+  const other = site.keyBindingStatus(workspaceBinding("bank.example", "school-example.20230601.gappssmtp.com"));
+  assert.equal(other.verified, false);
+  assert.equal(other.warning, true);
+  assert.match(other.message, /doesn't match the From: domain/);
+  const ambiguous = site.keyBindingStatus(workspaceBinding("bank.co.uk", "bank-co-uk.20230601.gappssmtp.com"));
+  assert.equal(ambiguous.verified, false);
+  assert.match(ambiguous.message, /would also match other domains/);
+});
+
+test("verify banner: Microsoft 365 tenant stays unproven, with a specific explanation", () => {
+  const s = site.keyBindingStatus(workspaceBinding("school.example", "school.onmicrosoft.com"));
+  assert.equal(s.verified, false);
+  assert.equal(s.warning, true);
+  assert.match(s.message, /Microsoft 365 tenant/);
+});
