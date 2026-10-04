@@ -161,6 +161,47 @@ export function displayDecodeMasked(bytes: Uint8Array): Uint8Array {
   return Uint8Array.from(out);
 }
 
-/** Should the verify page decode this (masked) body? Only if its revealed bytes say it's QP. */
-export const looksQuotedPrintable = (maskedBody: Uint8Array) =>
-  /content-transfer-encoding:\s*quoted-printable/i.test(new TextDecoder("latin1").decode(maskedBody));
+/**
+ * Should the verify page decode this (masked) body, and why: "header" when a revealed
+ * Content-Transfer-Encoding header says quoted-printable, "content" when the revealed text itself
+ * is clearly QP, else null.
+ * REASON: provers often hide the whole body and reveal a few sentences, which hides the part's
+ * Content-Transfer-Encoding header. The page then showed raw "samples=E2=80=94whether iden=" text.
+ * Decoding is display-only (the proof covers the raw bytes, and "show raw" stays available), so a
+ * content heuristic is safe as long as it doesn't fire on ordinary text:
+ *  - soft line breaks "=\r\n" not preceded by "=" (base64 padding "==" at a line end is not QP), and
+ *  - uppercase "=XX" escapes, where every revealed stretch of the decoded text is valid UTF-8
+ *    (checked after decoding, because QP may split one UTF-8 character across a soft break:
+ *    "=E2=80=\r\n=94" is an em dash),
+ *  - and no revealed Content-Transfer-Encoding header naming another encoding.
+ */
+export function quotedPrintableEvidence(maskedBody: Uint8Array): "header" | "content" | null {
+  const text = new TextDecoder("latin1").decode(maskedBody);
+  const ctes = [...text.matchAll(/content-transfer-encoding:\s*([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase());
+  if (ctes.includes("quoted-printable")) return "header";
+  if (ctes.length) return null;
+  let softBreaks = 0;
+  for (const m of text.matchAll(/=\r\n/g)) {
+    const prev = text[m.index! - 1];
+    if (prev !== "=" && prev !== "\0" && prev !== undefined) softBreaks++;
+  }
+  const escapes = (text.match(/=[0-9A-F]{2}/g) ?? []).length;
+  if (escapes) {
+    // Validate between hidden bytes (0x00): a hidden neighbour can cut a character in half.
+    const decoded = displayDecodeMasked(maskedBody);
+    let start = 0;
+    for (let i = 0; i <= decoded.length; i++) {
+      if (i < decoded.length && decoded[i] !== 0) continue;
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(decoded.subarray(start, i));
+      } catch {
+        return null; // escapes that aren't UTF-8 text: probably not QP, don't guess
+      }
+      start = i + 1;
+    }
+  }
+  return softBreaks >= 2 || (softBreaks >= 1 && escapes >= 1) || escapes >= 3 ? "content" : null;
+}
+
+/** Should the verify page decode this (masked) body? See quotedPrintableEvidence. */
+export const looksQuotedPrintable = (maskedBody: Uint8Array) => quotedPrintableEvidence(maskedBody) !== null;

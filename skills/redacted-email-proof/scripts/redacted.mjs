@@ -763,9 +763,10 @@ export function outputsOf(publicInputs, prefix, maxHeaderLength) {
   const header = latin1(headerBytes.slice(0, headerLen));
   const body = latin1(bodyBytes.slice(0, bodyLen));
   const pretty = (s) => compact(Buffer.from(s, "latin1").toString("utf8").replace(/\u0000/g, BLOCK).replace(/\r\n/g, "\n"));
-  const qpBody = hasQuotedPrintablePart(Buffer.from(body, "latin1"));
+  const qpEvidence = quotedPrintableEvidence(Buffer.from(body, "latin1"));
+  const qpBody = qpEvidence !== null;
   const bodyText = qpBody ? pretty(displayDecodeMasked(Buffer.from(body, "latin1")).toString("latin1")) : pretty(body);
-  return { header, body, headerText: pretty(header), bodyText, bodyDecodedFromQp: qpBody };
+  return { header, body, headerText: pretty(header), bodyText, bodyRawText: pretty(body), bodyDecodedFromQp: qpBody, qpEvidence };
 }
 
 // REASON: noir-bignum >= v0.9 (used by the v2 circuits) defines the Barrett parameter as
@@ -805,6 +806,37 @@ export function qpDecode(bytes) {
   return Buffer.from(out);
 }
 // Decode a masked raw body (0x00 = hidden) for display; an escape with a hidden byte -> one 0x00.
+// Same as src/utils/qp.ts quotedPrintableEvidence: "header" | "content" | null. Decide display
+// decoding from a revealed Content-Transfer-Encoding header, else from the text itself (soft
+// breaks not after "=", uppercase =XX runs that are valid UTF-8). See the REASON note there.
+export function quotedPrintableEvidence(maskedBody) {
+  const text = Buffer.from(maskedBody).toString("latin1");
+  const ctes = [...text.matchAll(/content-transfer-encoding:\s*([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase());
+  if (ctes.includes("quoted-printable")) return "header";
+  if (ctes.length) return null;
+  let softBreaks = 0;
+  for (const m of text.matchAll(/=\r\n/g)) {
+    const prev = text[m.index - 1];
+    if (prev !== "=" && prev !== "\0" && prev !== undefined) softBreaks++;
+  }
+  const escapes = (text.match(/=[0-9A-F]{2}/g) ?? []).length;
+  if (escapes) {
+    // validate the decoded text between hidden bytes (QP can split a UTF-8 char across "=\r\n")
+    const decoded = displayDecodeMasked(Buffer.from(maskedBody));
+    let start = 0;
+    for (let i = 0; i <= decoded.length; i++) {
+      if (i < decoded.length && decoded[i] !== 0) continue;
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(decoded.subarray(start, i));
+      } catch {
+        return null;
+      }
+      start = i + 1;
+    }
+  }
+  return softBreaks >= 2 || (softBreaks >= 1 && escapes >= 1) || escapes >= 3 ? "content" : null;
+}
+
 export function displayDecodeMasked(bytes) {
   const out = [];
   for (let i = 0; i < bytes.length; i++) {
@@ -1175,6 +1207,8 @@ async function cmdVerify(ref, opts) {
     fromAlignedWithDkimDomain: binding?.fromAligned ?? null,
     maskedHeader: outs.headerText,
     maskedBody: outs.bodyText,
+    maskedBodyRaw: outs.bodyRawText ?? outs.bodyText,
+    bodyDecodedFromQp: outs.bodyDecodedFromQp ?? false,
   };
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -1209,7 +1243,10 @@ async function cmdVerify(ref, opts) {
         );
       }
     }
-    console.log("\n----- masked header -----\n" + outs.headerText + "\n----- masked body -----\n" + outs.bodyText);
+    const qpNote = outs.bodyDecodedFromQp
+      ? ` (decoded from quoted-printable${outs.qpEvidence === "content" ? ", detected from the text" : ""}; the proof covers the encoded bytes, see maskedBodyRaw in --json)`
+      : "";
+    console.log("\n----- masked header -----\n" + outs.headerText + `\n----- masked body${qpNote} -----\n` + outs.bodyText);
   }
   if (!result.proofValid) process.exit(2);
   if (!result.keyMatches) process.exit(3);

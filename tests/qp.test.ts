@@ -5,9 +5,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bodyViewFor, displayDecodeMasked, qpDecode, viewMaskToRawMask } from "../src/utils/qp";
+import { bodyViewFor, displayDecodeMasked, qpDecode, quotedPrintableEvidence, viewMaskToRawMask } from "../src/utils/qp";
 // @ts-expect-error - plain JS module without types
-import { qpDecode as cliQpDecode, displayDecodeMasked as cliDisplayDecodeMasked } from "../skills/redacted-email-proof/scripts/redacted.mjs";
+import { qpDecode as cliQpDecode, displayDecodeMasked as cliDisplayDecodeMasked, quotedPrintableEvidence as cliQpEvidence } from "../skills/redacted-email-proof/scripts/redacted.mjs";
 
 const RAW = Buffer.from(
   "Content-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n" +
@@ -63,4 +63,37 @@ test("display decoding of masked output: partly hidden escapes show as one hidde
   const site = Buffer.from(displayDecodeMasked(masked)).toString("latin1");
   assert.equal(Buffer.from(cliDisplayDecodeMasked(masked)).toString("latin1"), site);
   assert.equal(site, "xâ\u0082¬ y \0 z \0!");
+});
+
+// A proof that hides the part's Content-Transfer-Encoding header (e.g. --hide-body with a few
+// sentences revealed) must still display decoded text, not "samples=E2=80=94whether iden=".
+test("QP detected from the text when the Content-Transfer-Encoding header is hidden", () => {
+  const raw = Buffer.from(
+    "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n" +
+      "we never sell data derived from our customers' samples=E2=80=94whether iden=\r\ntifiable or not=\r\n, ever=E2=80=\r\n=94really.\r\n",
+    "latin1"
+  );
+  const masked = Buffer.from(raw);
+  masked.fill(0, 0, raw.indexOf("\r\n\r\n") + 4); // MIME part headers hidden
+  for (const [name, evidence] of [["site", quotedPrintableEvidence], ["cli", cliQpEvidence]] as const) {
+    assert.equal(evidence(raw), "header", name);
+    assert.equal(evidence(masked), "content", name);
+  }
+  const shownText = Buffer.from(displayDecodeMasked(masked)).toString("utf8");
+  assert.ok(shownText.includes("samples—whether identifiable or not, ever—really."), shownText);
+});
+
+test("QP content detection does not fire on base64, plain text, or another declared encoding", () => {
+  const cases: [string, string][] = [
+    ["base64 padding at line ends", "SGVsbG8gd29ybGQ=\r\nSGk==\r\nQUJD==\r\n"],
+    ["plain text with = signs", "x = 1\r\nif (a == b) total = 3D printer\r\n"],
+    ["one lone soft-break-like line", "price =\r\nsee below\r\n"],
+    ["escapes that aren't UTF-8", "bytes =FF=FE=FD here\r\n"],
+    ["declared base64 part", "Content-Transfer-Encoding: base64\r\n\r\nc2Ftc=\r\nGxl=E2=80=94=\r\n"],
+  ];
+  for (const [label, text] of cases) {
+    const b = Buffer.from(text, "latin1");
+    assert.equal(quotedPrintableEvidence(b), null, `site: ${label}`);
+    assert.equal(cliQpEvidence(b), null, `cli: ${label}`);
+  }
 });

@@ -14,7 +14,7 @@ import type { DKIMResult } from "./utils/emlParser";
 import circuitConfigs from "./circuit-configs.json";
 import { canonicalPublicInputs, decodeMaskedBytes, V2_PREFIX } from "./utils/proofOutputs";
 import { dkimFieldSequence } from "./utils/dkimFields";
-import { bodyViewFor, charMaskToByteMask, viewMaskToRawMask, displayDecodeMasked, looksQuotedPrintable } from "./utils/qp";
+import { bodyViewFor, charMaskToByteMask, viewMaskToRawMask, displayDecodeMasked, quotedPrintableEvidence } from "./utils/qp";
 
 /**
  * Circuit versions
@@ -385,6 +385,10 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
   emailNullifier: Uint8Array;
   version: CircuitVersion;
   bodyDecodedFromQp: boolean;
+  /** why the body was decoded: a revealed Content-Transfer-Encoding header, or the text itself */
+  qpEvidence: "header" | "content" | null;
+  /** the proven body bytes as text, undecoded (for "show raw") */
+  maskedBodyRaw: string;
 } | null {
   try {
     // Decode exactly what handleVerifyProof verifies (throws on non-canonical inputs).
@@ -415,11 +419,14 @@ export function extractMaskedDataFromProof(proof: ProofWithCircuit): {
 
     const decoder = new TextDecoder("utf-8", { fatal: false });
     // Display-only decoding of the proven raw bytes (quoted-printable is a public function of them).
-    const bodyDecodedFromQp = looksQuotedPrintable(body);
+    const qpEvidence = quotedPrintableEvidence(body);
+    const bodyDecodedFromQp = qpEvidence !== null;
     return {
       maskedHeader: decoder.decode(header),
       maskedBody: decoder.decode(bodyDecodedFromQp ? displayDecodeMasked(body) : body),
+      maskedBodyRaw: decoder.decode(body),
       bodyDecodedFromQp,
+      qpEvidence,
       publicKeyHash,
       emailNullifier,
       version: layout.version,
