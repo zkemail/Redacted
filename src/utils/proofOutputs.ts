@@ -89,16 +89,18 @@ export function decodeMaskedBytes(
   layout: OutputLayout
 ): { header: Uint8Array; body: Uint8Array } {
   const { prefix, maxHeaderLength, maxBodyLength } = layout;
-  publicInputs = canonicalPublicInputs(publicInputs);
-  if (publicInputs.length !== prefix + maxHeaderLength + maxBodyLength) throw new Error("public input count does not match the circuit");
+  // NOTE: a new binding, not a reassignment: the parameter stays `unknown[]` to TypeScript, and
+  // `tsc -b` (the production Docker build) rejected passing its elements on as strings.
+  const inputs = canonicalPublicInputs(publicInputs);
+  if (inputs.length !== prefix + maxHeaderLength + maxBodyLength) throw new Error("public input count does not match the circuit");
   const headerBytes = new Uint8Array(maxHeaderLength);
-  for (let i = 0; i < maxHeaderLength; i++) headerBytes[i] = fieldToByte(publicInputs[prefix + i]);
+  for (let i = 0; i < maxHeaderLength; i++) headerBytes[i] = fieldToByte(inputs[prefix + i]);
   const bodyStart = prefix + maxHeaderLength;
   const bodyBytes = new Uint8Array(maxBodyLength);
-  for (let i = 0; i < maxBodyLength; i++) bodyBytes[i] = fieldToByte(publicInputs[bodyStart + i]);
+  for (let i = 0; i < maxBodyLength; i++) bodyBytes[i] = fieldToByte(inputs[bodyStart + i]);
   if (prefix === V2_PREFIX) {
-    const headerLen = fieldToNumber(publicInputs[3]);
-    const bodyLen = fieldToNumber(publicInputs[4]);
+    const headerLen = fieldToNumber(inputs[3]);
+    const bodyLen = fieldToNumber(inputs[4]);
     if (headerLen > maxHeaderLength || bodyLen > maxBodyLength) throw new Error("committed length exceeds circuit maximum");
     return { header: headerBytes.slice(0, headerLen), body: bodyBytes.slice(0, bodyLen) };
   }

@@ -1680,7 +1680,7 @@ export default function EmailCard({
         : [];
     }
 
-    onMaskChange(headerMask, bodyMask, aggregatedMask.unplacedRedactions);
+    onMaskChange(headerMask, bodyMask, aggregatedMask.unplacedRedactions ?? []);
   }, [
     aggregatedMask,
     email.originalEml,
