@@ -114,6 +114,8 @@ Mask options for prove (hidden bytes become 0x00 in the proof and show as ${BLOC
   --reveal <text>          With --hide-body: re-reveal occurrences of this text. Repeatable.
                            Hides always win over reveals.
   --reveal-regex <regex>   Regex form of --reveal.
+  --reveal-all-parts       Also reveal matches inside the text/html part when the text is in the
+                           plain-text part too (default: reveal only the plain-text copy).
   --reveal-dkim-hashes     Keep DKIM-Signature bh= and b= visible (hidden by default because bh=
                            lets anyone confirm a guess of a fully hidden body).
   --allow-missing          Don't fail when a --hide target is not found.
@@ -560,6 +562,21 @@ function headerLines(h) {
   return lines.filter((l) => l.name);
 }
 
+// Byte ranges of text/html MIME parts in a raw body ([start, end) of each part's content).
+// Parts are found from their delimiter lines ("--<boundary>"), so nested multiparts work too.
+export function htmlPartRanges(body) {
+  const delims = [...body.matchAll(/(?:^|\r\n)--[^\r\n\s]{1,200}(?=\r\n|$)/g)].map((m) => m.index + (m[0].startsWith("\r\n") ? 2 : 0));
+  const out = [];
+  for (let i = 0; i < delims.length; i++) {
+    const partStart = body.indexOf("\r\n", delims[i]) + 2;
+    const headersEnd = body.indexOf("\r\n\r\n", partStart);
+    const partEnd = i + 1 < delims.length ? delims[i + 1] : body.length;
+    if (partStart < 2 || headersEnd < 0 || headersEnd > partEnd) continue;
+    if (/^content-type:\s*text\/html/im.test(body.slice(partStart, headersEnd))) out.push([headersEnd + 4, partEnd]);
+  }
+  return out;
+}
+
 export function buildMasks(dkim, opts) {
   const h = lat1(dkim.headers);
   const b = lat1(dkim.body);
@@ -600,11 +617,28 @@ export function buildMasks(dkim, opts) {
   }
 
   // reveals first, hides last: hides always win
+  // REASON: multipart/alternative mail carries the same message twice, as text/plain and as
+  // text/html. Revealing a sentence in both publishes it twice, the second time wrapped in markup
+  // and entities ("can&#39;t"), which is noisy and reveals the HTML structure around it for nothing.
+  // So when a reveal matches outside the HTML part, its copies inside HTML parts stay hidden
+  // (--reveal-all-parts keeps both). Text that only exists in the HTML part is still revealed there.
+  const html = htmlPartRanges(b);
+  const inHtml = (k) => html.some(([lo, hi]) => k >= lo && k < hi);
+  const reveal = (label, matcher) => {
+    const plain = applyMatches(bodyMask, b, matcher, 1, opts["reveal-all-parts"] || !html.length ? {} : { region: (k) => !inHtml(k) });
+    if (plain && html.length && !opts["reveal-all-parts"]) {
+      if (applyMatches(new Array(b.length), b, matcher, 1, { region: inHtml })) {
+        warnings.push(`${label}: also in the HTML part; revealed only in the plain-text part (--reveal-all-parts reveals both)`);
+      }
+      return plain;
+    }
+    return plain || applyMatches(bodyMask, b, matcher, 1);
+  };
   for (const t of [].concat(opts.reveal || [])) {
-    if (!applyMatches(bodyMask, b, literalMatcher(needleLatin1(t)), 1)) warnings.push(`--reveal "${t}" not found in body`);
+    if (!reveal(`--reveal "${t}"`, literalMatcher(needleLatin1(t)))) warnings.push(`--reveal "${t}" not found in body`);
   }
   for (const r of [].concat(opts["reveal-regex"] || [])) {
-    if (!applyMatches(bodyMask, b, regexMatcher(r), 1)) warnings.push(`--reveal-regex /${r}/ matched nothing in body`);
+    if (!reveal(`--reveal-regex /${r}/`, regexMatcher(r))) warnings.push(`--reveal-regex /${r}/ matched nothing in body`);
   }
 
   // header name bytes are structural; only hide inside values
@@ -623,7 +657,17 @@ export function buildMasks(dkim, opts) {
 
 // Long hidden runs (usually whole hidden lines, newlines included) become one "█×N" marker so the
 // preview stays readable in a terminal or an agent's context window.
-const compact = (s) => s.replace(new RegExp(`${BLOCK}{12,}`, "g"), (m) => `${BLOCK}×${m.length}`);
+// Shorten redactions for the terminal: a long run of blocks becomes "█×N", and 3+ consecutive
+// lines that are entirely redacted become one "█ ⋯ N redacted characters (L lines) ⋯" line
+// (same idea as the verify page's collapsed redactions, src/utils/maskedRuns.ts).
+export const compact = (s) =>
+  s
+    .replace(new RegExp(`${BLOCK}{12,}`, "g"), (m) => `${BLOCK}×${m.length}`)
+    .replace(new RegExp(`(?:^[ \\t]*${BLOCK}+(?:×(\\d+))?[ \\t]*(?:\\n|$)){3,}`, "gm"), (m) => {
+      const lines = m.split("\n").filter((l) => l.trim());
+      const n = lines.reduce((sum, l) => sum + (Number(/×(\d+)/.exec(l)?.[1]) || l.trim().length), 0);
+      return `${BLOCK} ⋯ ${n.toLocaleString("en-US")} redacted characters (${lines.length} lines) ⋯${m.endsWith("\n") ? "\n" : ""}`;
+    });
 
 function renderDecoded(s, mask) {
   const bytes = Buffer.from(s, "latin1").map((v, i) => (mask[i] ? v : 0));
@@ -1271,6 +1315,7 @@ if (isMain) {
       reveal: { type: "string", multiple: true },
       "reveal-regex": { type: "string", multiple: true },
       "reveal-dkim-hashes": { type: "boolean" },
+      "reveal-all-parts": { type: "boolean" },
       "allow-missing": { type: "boolean" },
       domain: { type: "string" },
       "dry-run": { type: "boolean" },
