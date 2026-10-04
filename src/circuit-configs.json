@@ -33,6 +33,14 @@
       "browser": false
     },
     {
+      "name": "email_mask_1024_xxl",
+      "outputFile": "email_mask_1024_xxl.json",
+      "maxHeaderLength": 4096,
+      "maxBodyLength": 200704,
+      "keyBits": 1024,
+      "browser": false
+    },
+    {
       "name": "email_mask_2048_small",
       "outputFile": "email_mask_2048_small.json",
       "maxHeaderLength": 2048,
@@ -61,6 +69,14 @@
       "outputFile": "email_mask_2048_xl.json",
       "maxHeaderLength": 4096,
       "maxBodyLength": 100352,
+      "keyBits": 2048,
+      "browser": false
+    },
+    {
+      "name": "email_mask_2048_xxl",
+      "outputFile": "email_mask_2048_xxl.json",
+      "maxHeaderLength": 4096,
+      "maxBodyLength": 200704,
       "keyBits": 2048,
       "browser": false
     }

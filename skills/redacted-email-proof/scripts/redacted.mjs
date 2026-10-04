@@ -33,7 +33,7 @@ const API = (process.env.REDACTED_API || `${SITE}/api`).replace(/\/$/, "");
 // v1 = the original beta.5 / bb 0.84 circuits. Kept ONLY to verify links created before the upgrade,
 // and every v1 proof is reported as legacy: v1 published bytes past the signed length (a prover
 // could append unsigned text), and its 2048-bit key hash doesn't bind redc (zkemail.nr PR #62).
-const CIRCUIT_REF = "530980ca2869121605bffb13d0d3cf381dadd9b9";
+const CIRCUIT_REF = "c0c2700217ab4c7fca912f5ebe1fc910ea2e988d";
 const GH_RAW = (ref) => `https://raw.githubusercontent.com/zkemail/Redacted/${ref}/src/circuit`;
 const V2 = {
   version: 2,
@@ -53,6 +53,9 @@ const V2 = {
     { name: "email_mask_1024_xl", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 100352, file: "email_mask_1024_xl.json",
       sha256: "4cf398ca2b9b3fc01c17738a1450dc8246419d57e7680c2670823a175b96ca4a",
       vkSha256: "e43d369fd72f7b2d651ed1f8e6c87103a8547de2c3ab20d7e599ec91f0c2d4a8" },
+    { name: "email_mask_1024_xxl", keyBits: 1024, maxHeaderLength: 4096, maxBodyLength: 200704, file: "email_mask_1024_xxl.json",
+      sha256: "44f2aa0dc353659cf296923f328704207ebf36fef0b9f215e24f228e16be00fd",
+      vkSha256: "feb725929559e1007e7683d1e3f3cdc1837c250f4496e9abacbce5b2ce0a905e" },
     { name: "email_mask_2048_small", keyBits: 2048, maxHeaderLength: 2048, maxBodyLength: 4096, file: "email_mask_2048_small.json",
       sha256: "cd6d5ad5131ba0139ae7ffabf394c369c03e2f64ef621206453b8dd4eda60694",
       vkSha256: "088a51ad9d8560fe0aa6e42f68ec4c16a70d83c4165806b87e5816784658b649" },
@@ -65,6 +68,9 @@ const V2 = {
     { name: "email_mask_2048_xl", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 100352, file: "email_mask_2048_xl.json",
       sha256: "31b7e7db5008745f3c4eea4abe1b4724319079cf4d69ce2b5cd4d5f64919ff90",
       vkSha256: "d4f20b3ec18cc317e9ff8e2fad5c1984e49ef92431f39428c4f11c9dc8ce746b" },
+    { name: "email_mask_2048_xxl", keyBits: 2048, maxHeaderLength: 4096, maxBodyLength: 200704, file: "email_mask_2048_xxl.json",
+      sha256: "a04866e3a6b5e04c4bacc6cdf38deefb353d14fa0c16b908d68939a765390726",
+      vkSha256: "a9f0c0aa1c2b619b8514816b7241f18fc890801a7a48446ad6b347502b4db5b3" },
   ],
 };
 const V1 = {
@@ -1108,12 +1114,15 @@ async function cmdProve(file, opts) {
   const threads = Number(process.env.REDACTED_THREADS) || Math.max(1, os.cpus().length);
   const large = c.maxBodyLength > 8448;
   const xl = c.maxBodyLength > 48000;
+  const xxl = c.maxBodyLength > 100352;
   log(`Generating witness…`);
   const t0 = Date.now();
   const { witness } = await new noir.Noir(circuit).execute(inputs);
   log(
     `Proving with UltraHonk (${threads} threads; ` +
-      (xl
+      (xxl
+        ? `XXL tier: ~2-3 min on 12+ cores, longer on fewer, ~23 GB RAM, needs a 32 GB+ machine)…`
+        : xl
         ? `XL tier: ~2-4 min on 16+ cores, longer on fewer, ~14 GB RAM, needs a 16 GB+ machine)…`
         : large
           ? `large tier: ~1 min on 16+ cores, longer on fewer, ~7 GB RAM)…`

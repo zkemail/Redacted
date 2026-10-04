@@ -100,3 +100,15 @@ Each section below is a rule plus the incident that produced it (2026-09-27, PR 
 - After merging, confirm the deploy: the Render service is `srv-d4tfnou3jp1c73eegmeg` (ZK Email
   workspace key `render-api-key-zkemail-team`, `GET /v1/services/<id>/deploys`). Or check that a string
   from the change appears in the live `/assets/*.js` bundle.
+
+## XXL tier (2^24) build and measurement
+- XXL = 4,096-byte header / 200,704-byte body (2× XL), 15.70M gates (1024-bit) and 15.71M (2048-bit),
+  93.6% of 2^24. About 76 gates per body byte above XL, so a bigger body needs a 2^25 tier.
+- Compile on a Linux box with at least 32 GB (cortex): `NARGO_BIN=… BB_BIN=node_modules/@aztec/bb.js/build/amd64-linux/bb
+  npx tsx scripts/compile-circuits.ts --only=email_mask_1024_xxl` takes 13–16 min and peaks at ~20 GB
+  (proving-key computation inside write_vk). Don't build it on the Mac during the day.
+- Proving takes 124–132 s on 12 cores and peaks at 22.4–22.5 GB RSS of `bb` on Linux (six real emails,
+  2026-10-01). Linux RSS is reliable when swap doesn't grow; sample `/proc/<bb pid>/status` VmRSS, not
+  `/usr/bin/time` on node (bb.js's native bb isn't a reaped child, so time reports ~2 GB).
+- The artifacts are 37 MB each. The pin script regenerates the CLI's whole circuit table from
+  `src/circuit-configs.json`, so a new tier only needs configs, artifacts, a pin run and docs.
