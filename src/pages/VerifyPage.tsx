@@ -48,6 +48,9 @@ export default function VerifyPage() {
   } | null>(null);
   const [maskedBody, setMaskedBody] = useState<string>('');
   const [bodyDecodedFromQp, setBodyDecodedFromQp] = useState(false);
+  const [qpEvidence, setQpEvidence] = useState<"header" | "content" | null>(null);
+  const [maskedBodyRaw, setMaskedBodyRaw] = useState("");
+  const [showRawBody, setShowRawBody] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   useEffect(() => {
@@ -183,6 +186,8 @@ export default function VerifyPage() {
         // Store the masked body
         setMaskedBody(maskedData.maskedBody);
         setBodyDecodedFromQp(maskedData.bodyDecodedFromQp);
+        setQpEvidence(maskedData.qpEvidence);
+        setMaskedBodyRaw(maskedData.maskedBodyRaw);
 
       } catch (err) {
         console.error("Error loading verification data:", err);
@@ -379,13 +384,19 @@ export default function VerifyPage() {
             <div className="p-6">
               {bodyDecodedFromQp && (
                 <p className="text-xs text-[#666] mb-3">
-                  Shown decoded from quoted-printable. The proof covers the encoded bytes; decoding
-                  them is a fixed public step anyone can repeat.
+                  {showRawBody
+                    ? "Shown as the raw quoted-printable bytes the proof covers."
+                    : qpEvidence === "content"
+                      ? "Shown decoded from quoted-printable (detected from the text; its Content-Transfer-Encoding header is hidden). The proof covers the encoded bytes; decoding them is a fixed public step anyone can repeat."
+                      : "Shown decoded from quoted-printable. The proof covers the encoded bytes; decoding them is a fixed public step anyone can repeat."}{" "}
+                  <button type="button" className="underline" onClick={() => setShowRawBody((v) => !v)}>
+                    {showRawBody ? "Show decoded" : "Show raw"}
+                  </button>
                 </p>
               )}
               <div className="prose max-w-none">
                 <MaskedText
-                  text={maskedBody}
+                  text={bodyDecodedFromQp && showRawBody ? maskedBodyRaw : maskedBody}
                   className="text-[#111314] whitespace-pre-wrap break-words"
                 />
               </div>
