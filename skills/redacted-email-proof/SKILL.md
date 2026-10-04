@@ -97,6 +97,21 @@ $R prove email.eml --dry-run \
   command **fails if a hide target isn't found** (use `--allow-missing` to override). Treat that
   failure as a signal: the text may be encoded differently, so read the `inspect` output.
 - Hides always win over reveals.
+- **Reveal each passage once, in its most readable copy.** Most HTML email is
+  `multipart/alternative`: the same message appears as a `text/plain` part and again as a
+  `text/html` part. Revealing a passage in both publishes it twice, the second time wrapped in
+  tags and entities (`can&#39;t`, `<div>`), which is noisy and exposes the HTML layout around it.
+  - The CLI handles the common case: when a `--reveal` matches the plain-text part, its copies in
+    the HTML part stay hidden and a warning says so. Pass `--reveal-all-parts` only if the user
+    wants both.
+  - When choosing what to reveal, read `inspect`'s body and pick the plain-text wording. Prefer
+    `--reveal` phrases over broad `--reveal-regex` patterns that also catch the HTML copy.
+  - If two passages are near-duplicates (a quoted reply, a signature repeated at the bottom, a
+    plain and an HTML rendering), reveal only the one a person would read: plain text over HTML,
+    the original over the quoted copy.
+  - If the text exists *only* in the HTML part, reveal it there, and keep it to the text itself:
+    don't widen the reveal to the surrounding tags.
+  - Check the preview: the same sentence should not appear twice.
 - **Show the preview to the user and get their OK before proving.** Everything not shown as █ in
   the preview becomes public if the proof is published.
 
