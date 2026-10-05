@@ -812,6 +812,34 @@ export function domainsAligned(fromDomain, signingDomain) {
   return f === d || f.endsWith("." + d) || d.endsWith("." + f);
 }
 
+// REASON: Google Workspace signs mail for domains without their own DKIM as
+// d=<from-domain, dots as dashes>.<yyyymmdd>.gappssmtp.com, and Microsoft 365 as
+// d=<tenant>.onmicrosoft.com. A Google label equal to the dashed From: domain ties the signature
+// to that domain's Workspace (Google signs only for its customers and only From: addresses they
+// verified); Microsoft tenant names aren't tied to domains, so those stay unproven.
+// NOTE: dots->dashes is ambiguous (bank.co.uk / bank-co.uk -> bank-co-uk) and Workspace's SMTP
+// relay can send any From:, so only one-dot From: domains (unambiguous) count as matched.
+// Same as src/utils/keyBinding.ts signerProvider (see its NOTE on the dots->dashes collision).
+export function signerProvider(fromDomain, signingDomain) {
+  const d = signingDomain.toLowerCase();
+  const g = /^([a-z0-9-]+)\.\d{8}\.gappssmtp\.com$/.exec(d);
+  if (g) {
+    const f = fromDomain?.toLowerCase() ?? "";
+    const unambiguous = f.split(".").length === 2;
+    return { kind: "google-workspace", tenant: g[1], matchesFrom: unambiguous && g[1] === f.replace(/\./g, "-") };
+  }
+  const ms = /^([a-z0-9-]+)\.onmicrosoft\.com$/.exec(d);
+  if (ms) return { kind: "microsoft-365", tenant: ms[1], matchesFrom: false };
+  return null;
+}
+
+function alignmentOf(fromDomain, signingDomain) {
+  const provider = signerProvider(fromDomain, signingDomain);
+  if (fromDomain && domainsAligned(fromDomain, signingDomain)) return { fromAligned: true, alignedVia: "domain", provider };
+  if (provider?.matchesFrom) return { fromAligned: true, alignedVia: "google-workspace", provider };
+  return { fromAligned: false, alignedVia: null, provider };
+}
+
 // Decode the masked header/body a proof publishes (0x00 = masked). v2 (prefix 5) commits to the
 // signed lengths and zeroes everything past them, so this is an exact slice.
 // Throws on non-canonical inputs (see canonicalPublicInputs).
@@ -1031,7 +1059,7 @@ export async function checkKeyBinding(publicInputs, header, circuit, resolveKeys
         if (!n) continue;
         const got = await pubkeyHash(n, keyBits, version);
         if (got.length === want.length && got.every((v, i) => v === want[i])) {
-          return { ...out, domain: d, selector: s, matched: out.tried.at(-1), fromAligned: from.domain ? domainsAligned(from.domain, d) : false };
+          return { ...out, domain: d, selector: s, matched: out.tried.at(-1), ...alignmentOf(from.domain, d) };
         }
       }
     }
@@ -1283,6 +1311,8 @@ async function cmdVerify(ref, opts) {
     fromAddress: binding?.from?.address ?? null,
     fromHidden: binding?.from?.hidden ?? false,
     fromAlignedWithDkimDomain: binding?.fromAligned ?? null,
+    fromAlignedVia: binding?.alignedVia ?? null,
+    signerProvider: binding?.provider ?? null,
     maskedHeader: outs.headerText,
     maskedBody: outs.bodyText,
     maskedBodyRaw: outs.bodyRawText ?? outs.bodyText,
@@ -1307,6 +1337,12 @@ async function cmdVerify(ref, opts) {
             : `dkim key: NOT matched to any published key for ${pairs} ` +
               `(tried: ${result.keysTried.join("; ") || "no key found"}${binding.archiveError ? `; archive: ${binding.archiveError}` : ""}). Treat the sender as unproven.`,
       );
+      if (result.keyMatches && result.fromAlignedVia === "google-workspace") {
+        console.log(
+          `from: ${result.fromAddress} — signed by Google Workspace for ${binding.from.domain} (d=${result.dkimDomain}; ` +
+            `Google signs this way for Workspace domains without their own DKIM key).`,
+        );
+      }
       if (result.keyMatches && result.fromAlignedWithDkimDomain === false) {
         // REASON: usually innocent (a mailing service signing with its own domain), so name the
         // signing domain and the matching key, and say that only the From: line is unproven.
@@ -1315,8 +1351,11 @@ async function cmdVerify(ref, opts) {
           result.fromHidden
             ? `warning: the ${signer}, but the From: address is hidden, so it isn't proven to be on ${result.dkimDomain}.`
             : result.fromAddress
-              ? `warning: From: ${result.fromAddress} is on ${binding.from.domain}, but the ${signer}. This is often a quirk ` +
-                `of the sender's email service (it signs with its own domain), but the From: address is NOT proven.`
+              ? `warning: From: ${result.fromAddress} is on ${binding.from.domain}, but the ${signer}. ` +
+                (result.signerProvider?.kind === "microsoft-365"
+                  ? `${result.dkimDomain} is a Microsoft 365 tenant (Microsoft signs this way when a domain has no DKIM key of its own), ` +
+                    `and which domains a tenant owns isn't public, so the From: address is NOT proven.`
+                  : `This is often a quirk of the sender's email service (it signs with its own domain), but the From: address is NOT proven.`)
               : `warning: the ${signer}, but the From: address can't be read, so it isn't proven.`,
         );
       }
