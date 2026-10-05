@@ -17,6 +17,11 @@ interface ActionBarProps {
   showVerifyProof?: boolean; // If true, show verify proof button instead of verify button
   proofVerified?: boolean;
   hasMaskedContent?: boolean; // If false, disable the View & Download button
+  // NOTE: inline=true renders the bar in normal page flow instead of pinned to the viewport
+  // bottom. Used when the verify page is embedded in an iframe: there the viewport is short, so
+  // the fixed bar sat on top of the email text and, below the md breakpoint, showed only an
+  // unlabeled icon. Removing this brings that overlap back for every embed.
+  inline?: boolean;
 }
 
 export default function ActionBar({
@@ -31,6 +36,7 @@ export default function ActionBar({
   showVerifyProof = false,
   proofVerified = false,
   hasMaskedContent = false,
+  inline = false,
 }: ActionBarProps) {
   const verifyLabel = isVerifyingProof
     ? "Verifying..."
@@ -44,7 +50,13 @@ export default function ActionBar({
   const isViewDownloadDisabled = isGeneratingProof || !hasMaskedContent;
 
   return (
-    <div className="fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max">
+    <div
+      className={
+        inline
+          ? "flex justify-center px-4 mt-6 mb-8"
+          : "fixed bottom-4 md:bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-4 w-max"
+      }
+    >
       <div className="bg-[#F5F3EF] rounded-2xl px-4 md:px-4 py-3 md:py-3 shadow-[0px_4px_8px_0px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-4 md:gap-4 flex-wrap justify-center">
           {/* {!showVerifyProof && (
@@ -95,7 +107,7 @@ export default function ActionBar({
                 )}
               </div>
               <span
-                className={`text-base font-normal hidden md:block text-[#111314]`}
+                className={`text-base font-normal text-[#111314]`}
               >
                 {verifyLabel}
               </span>

@@ -305,11 +305,23 @@ export default function VerifyPage() {
     );
   }
 
+  // NOTE: when this page is iframed (e.g. a blog embedding a proof), render the action bar
+  // inline after the email instead of fixed to the viewport, so it can't cover the email text.
+  // Accessing window.top can throw for cross-origin parents in some browsers; treat that as embedded.
+  let isEmbedded = false;
+  try {
+    isEmbedded = window.self !== window.top;
+  } catch {
+    isEmbedded = true;
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F3EF] relative px-0 md:px-4 lg:px-6">
       <Header navigate={navigate} onShare={handleShare} />
 
-      <main className="pt-20 md:pt-16 lg:pt-20 px-6 md:px-0">
+      {/* NOTE: pb-32 reserves room for the fixed action bar on the standalone page, so the end of
+          the email can scroll clear of it instead of staying hidden underneath. */}
+      <main className={`pt-20 md:pt-16 lg:pt-20 px-6 md:px-0 ${isEmbedded ? "" : "pb-32"}`}>
         <div className="w-full max-w-4xl mx-auto">
           {/* Verification Status Banner */}
           {verificationStatus && (
@@ -411,14 +423,14 @@ export default function VerifyPage() {
             </div>
           </div>
         </div>
+        <ActionBar
+          inline={isEmbedded}
+          onVerifyProof={handleVerify}
+          isVerifyingProof={isVerifying}
+          showVerifyProof={true}
+          proofVerified={verificationStatus?.verified === true}
+        />
       </main>
-
-      <ActionBar
-        onVerifyProof={handleVerify}
-        isVerifyingProof={isVerifying}
-        showVerifyProof={true}
-        proofVerified={verificationStatus?.verified === true}
-      />
 
       <VerificationUrlModal
         isOpen={showVerificationModal}
