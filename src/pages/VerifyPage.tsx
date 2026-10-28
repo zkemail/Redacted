@@ -394,18 +394,6 @@ export default function VerifyPage() {
 
             {/* Body Section */}
             <div className="p-6">
-              {bodyDecodedFromQp && (
-                <p className="text-xs text-[#666] mb-3">
-                  {showRawBody
-                    ? "Shown as the raw quoted-printable bytes the proof covers."
-                    : qpEvidence === "content"
-                      ? "Shown decoded from quoted-printable (detected from the text; its Content-Transfer-Encoding header is hidden). The proof covers the encoded bytes; decoding them is a fixed public step anyone can repeat."
-                      : "Shown decoded from quoted-printable. The proof covers the encoded bytes; decoding them is a fixed public step anyone can repeat."}{" "}
-                  <button type="button" className="underline" onClick={() => setShowRawBody((v) => !v)}>
-                    {showRawBody ? "Show decoded" : "Show raw"}
-                  </button>
-                </p>
-              )}
               <div className="prose max-w-none">
                 <MaskedText
                   text={bodyDecodedFromQp && showRawBody ? maskedBodyRaw : maskedBody}
@@ -420,6 +408,31 @@ export default function VerifyPage() {
                 This content is extracted directly from the zero-knowledge proof's public outputs.
                 Black blocks indicate redacted information that was masked by the sender.
               </p>
+              {bodyDecodedFromQp && (
+                <div className="mt-3 flex items-center justify-end gap-2 text-xs text-gray-500">
+                  <button
+                    type="button"
+                    className="underline decoration-gray-300 underline-offset-2 hover:text-gray-700"
+                    aria-pressed={showRawBody}
+                    onClick={() => setShowRawBody((v) => !v)}
+                  >
+                    {showRawBody ? "Show decoded" : "Show raw"}
+                  </button>
+                  <details className="relative">
+                    <summary
+                      className="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full border border-gray-300 [&::-webkit-details-marker]:hidden"
+                      aria-label="About the raw email view"
+                    >
+                      <span aria-hidden="true">i</span>
+                    </summary>
+                    <p className="absolute bottom-full right-0 z-10 mb-2 w-64 max-w-[calc(100vw-4rem)] rounded-md border border-gray-200 bg-white p-3 text-left leading-relaxed shadow-md">
+                      Show raw displays the quoted-printable bytes covered by the proof.
+                      The default view decodes them for readability using a fixed public step anyone can repeat.
+                      {qpEvidence === "content" && " Encoding was detected from the text because its Content-Transfer-Encoding header is hidden."}
+                    </p>
+                  </details>
+                </div>
+              )}
             </div>
           </div>
         </div>
