@@ -3,9 +3,13 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
 
 jobs:
   typecheck:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Type Check
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +35,7 @@ jobs:
         run: yarn test
 
   noir:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Noir circuit tests
     runs-on: ubuntu-latest
     steps:
