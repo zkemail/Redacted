@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { maskedSegments } from '../utils/maskedRuns';
 
 interface MaskedTextProps {
@@ -6,47 +6,48 @@ interface MaskedTextProps {
   className?: string;
 }
 
-const Blocks = ({ count, onCollapse }: { count: number; onCollapse?: () => void }) => {
-  const blocks = (
-    <span
-      className="bg-black text-black select-none"
-      style={{ letterSpacing: '0.05em', userSelect: 'none' }}
-      aria-label={`${count} characters redacted`}
-    >
-      {'█'.repeat(count)}
-    </span>
-  );
-  return onCollapse ? (
-    <button
-      type="button"
-      onClick={onCollapse}
-      className="cursor-pointer text-left"
-      aria-label={`Collapse ${count} redacted characters`}
-      aria-expanded={true}
-      title="Collapse redacted characters"
-    >
-      {blocks}
-    </button>
-  ) : blocks;
-};
+const Blocks = ({ count }: { count: number }) => (
+  <span
+    className="bg-black text-black select-none"
+    style={{ letterSpacing: '0.05em', userSelect: 'none' }}
+    aria-label={`${count} characters redacted`}
+  >
+    {'█'.repeat(count)}
+  </span>
+);
 
 /** A long redacted stretch, collapsed to one row; click to show every block. */
 function CollapsedRedaction({ content, hidden, lines }: { content: string; hidden: number; lines: number }) {
   const [open, setOpen] = useState(false);
+  const restoreFocus = useRef(false);
   if (open) {
     return (
-      <>
+      <button
+        type="button"
+        onClick={() => {
+          restoreFocus.current = true;
+          setOpen(false);
+        }}
+        className="max-w-full cursor-pointer whitespace-pre-wrap break-all text-left"
+        aria-label={`Collapse ${hidden.toLocaleString()} redacted characters`}
+        aria-expanded={true}
+        title="Collapse redacted characters"
+      >
         {content.split(/(\0+)/).map((part, i) =>
-          part.startsWith('\0') ? <Blocks key={i} count={part.length} onCollapse={() => setOpen(false)} /> : <span key={i}>{part}</span>
+          part.startsWith('\0') ? <Blocks key={i} count={part.length} /> : <span key={i}>{part}</span>
         )}
-        <button type="button" onClick={() => setOpen(false)} className="ml-1 text-xs text-[#666] underline select-none">
-          collapse
-        </button>
-      </>
+        <span className="ml-1 text-xs text-[#666] underline select-none">collapse</span>
+      </button>
     );
   }
   return (
     <button
+      ref={(node) => {
+        if (node && restoreFocus.current) {
+          restoreFocus.current = false;
+          node.focus({ preventScroll: true });
+        }
+      }}
       type="button"
       onClick={() => setOpen(true)}
       aria-expanded={false}
